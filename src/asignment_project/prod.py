@@ -8,6 +8,12 @@ Usage:
 """
 
 import logging
+import sys
+from pathlib import Path
+
+# Ensure the project root (where config.py lives) is on sys.path when this
+# entry-point is executed as an installed script from src/asignment_project/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import uvicorn
 

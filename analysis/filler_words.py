@@ -1,9 +1,11 @@
 """Filler-word detection via keyword matching on the transcript."""
 
 from __future__ import annotations
+
 import re
-from schema import FillerWordHit
+
 from config import FILLER_WORDS, FILLER_WORDS_BY_LANGUAGE
+from schema import FillerWordHit
 
 
 def detect_filler_words(
@@ -26,9 +28,7 @@ def detect_filler_words(
 
     # Choose the active filler set: language-specific when known, union otherwise
     active_fillers: set[str] = (
-        FILLER_WORDS_BY_LANGUAGE.get(language, FILLER_WORDS)
-        if language
-        else FILLER_WORDS
+        FILLER_WORDS_BY_LANGUAGE.get(language, FILLER_WORDS) if language else FILLER_WORDS
     )
 
     hits: dict[str, list[float]] = {}
@@ -44,22 +44,24 @@ def detect_filler_words(
         for filler in active_fillers:
             if " " in filler:
                 pattern = re.compile(r"\b" + re.escape(filler) + r"\b", re.IGNORECASE)
-                for m in pattern.finditer(transcript):
+                for _m in pattern.finditer(transcript):
                     hits.setdefault(filler, []).append(0.0)  # approximate timestamp
     else:
         # Fallback: regex on the full transcript
         for filler in active_fillers:
             pattern = re.compile(r"\b" + re.escape(filler) + r"\b", re.IGNORECASE)
-            for m in pattern.finditer(transcript):
+            for _m in pattern.finditer(transcript):
                 hits.setdefault(filler, []).append(0.0)
 
     result: list[FillerWordHit] = []
     for word, timestamps in hits.items():
-        result.append(FillerWordHit(
-            word=word,
-            count=len(timestamps),
-            timestamps=timestamps,
-        ))
+        result.append(
+            FillerWordHit(
+                word=word,
+                count=len(timestamps),
+                timestamps=timestamps,
+            )
+        )
     result.sort(key=lambda h: h.count, reverse=True)
     return result
 

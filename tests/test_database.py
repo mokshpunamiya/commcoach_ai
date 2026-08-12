@@ -14,6 +14,7 @@ def _patch_db_path(tmp_path, monkeypatch):
     monkeypatch.setattr("database.db.DB_PATH", db_file)
     # Re-init so the tables exist in the fresh DB
     import database.db as db_module
+
     monkeypatch.setattr(db_module, "DB_PATH", db_file)
     db_module.init_db()
     yield
@@ -22,6 +23,7 @@ def _patch_db_path(tmp_path, monkeypatch):
 import database.db as db  # noqa: E402
 
 # ── init_db ───────────────────────────────────────────────────────────────
+
 
 class TestInitDb:
     def test_tables_created(self, tmp_path, monkeypatch):
@@ -35,9 +37,7 @@ class TestInitDb:
         conn = db_module.get_conn()
         tables = {
             row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         conn.close()
         assert "sessions" in tables
@@ -54,6 +54,7 @@ class TestInitDb:
 
 
 # ── create_session ────────────────────────────────────────────────────────
+
 
 class TestCreateSession:
     def test_returns_uuid_string(self):
@@ -82,6 +83,7 @@ class TestCreateSession:
 
 
 # ── save_turn ─────────────────────────────────────────────────────────────
+
 
 class TestSaveTurn:
     def test_save_basic_turn(self):
@@ -124,6 +126,7 @@ class TestSaveTurn:
 
 # ── get_sessions ──────────────────────────────────────────────────────────
 
+
 class TestGetSessions:
     def test_empty_for_unknown_user(self):
         sessions = db.get_sessions("ghost_user")
@@ -143,6 +146,7 @@ class TestGetSessions:
 
 
 # ── reset_user_sessions ───────────────────────────────────────────────────
+
 
 class TestResetUserSessions:
     def test_deletes_sessions_and_returns_count(self):

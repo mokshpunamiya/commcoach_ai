@@ -8,6 +8,7 @@ from analysis.grammar import grammar_score
 
 # ── grammar_score ─────────────────────────────────────────────────────────
 
+
 class TestGrammarScore:
     def test_zero_word_count_returns_zero(self):
         assert grammar_score(0, 0) == 0.0
@@ -49,12 +50,15 @@ class TestGrammarScore:
         score = grammar_score(10, 10)
         assert score == pytest.approx(0.0)
 
-    @pytest.mark.parametrize("issues,words,expected_min,expected_max", [
-        (0, 100, 99.0, 100.0),   # no issues, long answer → perfect
-        (0, 3, 0.0, 30.0),       # no issues, 3-word answer → heavy penalty
-        (5, 50, 0.0, 60.0),      # moderate density
-        (1, 20, 50.0, 100.0),    # low density, reasonable answer
-    ])
+    @pytest.mark.parametrize(
+        "issues,words,expected_min,expected_max",
+        [
+            (0, 100, 99.0, 100.0),  # no issues, long answer → perfect
+            (0, 3, 0.0, 30.0),  # no issues, 3-word answer → heavy penalty
+            (5, 50, 0.0, 60.0),  # moderate density
+            (1, 20, 50.0, 100.0),  # low density, reasonable answer
+        ],
+    )
     def test_expected_ranges(self, issues, words, expected_min, expected_max):
         s = grammar_score(issues, words)
         assert expected_min <= s <= expected_max, (

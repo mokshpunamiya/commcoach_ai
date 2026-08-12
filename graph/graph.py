@@ -45,19 +45,22 @@ Memory layers:
 """
 
 from __future__ import annotations
+
 import logging
-from langgraph.graph import StateGraph, END, START
-from graph.state import CoachState
+
+from langgraph.graph import END, START, StateGraph
+
+from graph.memory import get_checkpointer
 from graph.nodes import (
-    retrieve_memory_node,
-    transcribe_node,
     analyze_node,
     generate_feedback_node,
     generate_question_node,
-    update_memory_node,
+    retrieve_memory_node,
     route_action,
+    transcribe_node,
+    update_memory_node,
 )
-from graph.memory import get_checkpointer
+from graph.state import CoachState
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +150,7 @@ def get_graph():
 
 # ─── Convenience wrappers ───────────────────────────────
 
+
 def analyze_audio_file(
     audio_path: str,
     user_id: str = "default_user",
@@ -159,6 +163,7 @@ def analyze_audio_file(
     Uses a unique thread_id so each analysis is independent.
     """
     import uuid
+
     thread_id = session_id or f"analyze-{uuid.uuid4()}"
     graph = get_graph()
 
@@ -198,6 +203,7 @@ def start_interview(
     Returns the first question.
     """
     import uuid
+
     thread_id = session_id or f"interview-{uuid.uuid4()}"
     graph = get_graph()
 

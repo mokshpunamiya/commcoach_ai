@@ -1,20 +1,28 @@
 """Combine all analysis modules into a single SessionReport."""
 
 from __future__ import annotations
+
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from schema import SessionReport
-from analysis.transcriber import transcribe
-from analysis.grammar import check_grammar, grammar_score, score_grammar_llm, score_relevancy_llm, _get_tool
+
+from analysis.emotion import approximate_confidence, detect_emotion, emotion_to_confidence
 from analysis.filler_words import detect_filler_words, filler_score
+from analysis.grammar import (
+    _get_tool,
+    check_grammar,
+    grammar_score,
+    score_grammar_llm,
+    score_relevancy_llm,
+)
 from analysis.pace import (
     calculate_pace,
     detect_pauses,
+    fluency_score,
     get_long_pauses,
     pace_score,
-    fluency_score,
 )
-from analysis.emotion import detect_emotion, emotion_to_confidence, approximate_confidence
+from analysis.transcriber import transcribe
+from schema import SessionReport
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +38,7 @@ def _run_grammar(transcript: str, word_count: int) -> tuple[list, float, float, 
         # LanguageTool path — real issue list, no pronunciation
         issues = check_grammar(transcript)
         g_score = grammar_score(len(issues), word_count)
-        return issues, g_score, g_score, []   # pronunciation mirrors grammar
+        return issues, g_score, g_score, []  # pronunciation mirrors grammar
     else:
         # LLM scorer path — no LanguageTool issues, but real grammar + pronunciation scores
         logger.info("Scoring grammar and pronunciation via LLM …")
@@ -64,8 +72,8 @@ def analyze_audio(
     wt = word_timestamps  # local alias for the closure below
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_grammar = ex.submit(_run_grammar, transcript, word_count)
-        f_fillers  = ex.submit(detect_filler_words, transcript, wt or None)
-        f_pauses   = ex.submit(detect_pauses, audio_path)
+        f_fillers = ex.submit(detect_filler_words, transcript, wt or None)
+        f_pauses = ex.submit(detect_pauses, audio_path)
 
     grammar_issues, g_score, pronun_score, llm_issues = f_grammar.result()
 
@@ -100,8 +108,7 @@ def analyze_audio(
     # while still skipping bare topic labels like "HR" or "Technical" (1-2 words).
     _real_question = bool(question and len(question.strip().split()) >= 3)
     relevancy_score: float | None = (
-        float(score_relevancy_llm(transcript, question)["relevancy"])
-        if _real_question else None
+        float(score_relevancy_llm(transcript, question)["relevancy"]) if _real_question else None
     )
 
     # 8. Overall score
@@ -185,6 +192,7 @@ def analyze_with_transcript(
     # measure duration directly here from the audio file.
     if duration_seconds <= 0.0 and audio_path:
         from analysis.transcriber import _measure_duration_pyav
+
         duration_seconds = _measure_duration_pyav(audio_path)
 
     # Last resort: estimate from word count at average English speaking rate
@@ -192,15 +200,16 @@ def analyze_with_transcript(
         duration_seconds = (word_count / 130.0) * 60.0  # 130 WPM average
         logger.warning(
             "Duration unknown — estimating %.1f s from %d words at 130 WPM",
-            duration_seconds, word_count,
+            duration_seconds,
+            word_count,
         )
 
     # Grammar, filler detection, and pause detection share no inputs beyond
     # transcript/audio_path — run in parallel to reduce wall-clock time.
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_grammar = ex.submit(_run_grammar, transcript, word_count)
-        f_fillers  = ex.submit(detect_filler_words, transcript, wt or None)
-        f_pauses   = ex.submit(detect_pauses, audio_path)
+        f_fillers = ex.submit(detect_filler_words, transcript, wt or None)
+        f_pauses = ex.submit(detect_pauses, audio_path)
 
     grammar_issues, g_score, pronun_score, llm_issues = f_grammar.result()
 
@@ -223,8 +232,7 @@ def analyze_with_transcript(
     # Answer relevancy — only meaningful when a real interview question is provided.
     _real_question = bool(question and len(question.strip().split()) >= 3)
     relevancy_score: float | None = (
-        float(score_relevancy_llm(transcript, question)["relevancy"])
-        if _real_question else None
+        float(score_relevancy_llm(transcript, question)["relevancy"]) if _real_question else None
     )
 
     # Overall — same conditional weighting as analyze_audio
@@ -257,7 +265,9 @@ def analyze_with_transcript(
         long_pauses=long_pauses,
         filler_words=filler_hits,
         filler_word_count=filler_count,
-        filler_word_rate=round(filler_count / (duration_seconds / 60.0), 1) if duration_seconds > 0 else 0.0,
+        filler_word_rate=round(filler_count / (duration_seconds / 60.0), 1)
+        if duration_seconds > 0
+        else 0.0,
         grammar_issues=grammar_issues,
         grammar_issue_count=len(grammar_issues),
         fluency_score=fl_score,
@@ -293,8 +303,7 @@ def analyze_transcript_only(
     # Answer relevancy — only meaningful when a real interview question is provided.
     _real_question = bool(question and len(question.strip().split()) >= 3)
     relevancy_score: float | None = (
-        float(score_relevancy_llm(transcript, question)["relevancy"])
-        if _real_question else None
+        float(score_relevancy_llm(transcript, question)["relevancy"]) if _real_question else None
     )
 
     # Text-only overall: no fluency/pace/pronunciation data available.
@@ -307,15 +316,12 @@ def analyze_transcript_only(
     #                          filler            0.40
     if relevancy_score is not None:
         overall = round(
-            relevancy_score * 0.50
-            + g_score * 0.30
-            + f_score * 0.20,
+            relevancy_score * 0.50 + g_score * 0.30 + f_score * 0.20,
             1,
         )
     else:
         overall = round(
-            g_score * 0.60
-            + f_score * 0.40,
+            g_score * 0.60 + f_score * 0.40,
             1,
         )
 

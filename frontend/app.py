@@ -8,11 +8,12 @@ Features:
   - View long-term coaching profile
 """
 
-import streamlit as st
+import logging
+
 import requests
-import json
-import time
-from pathlib import Path
+import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 API_URL = "http://localhost:8000"
 
@@ -21,18 +22,21 @@ st.set_page_config(page_title="CommCoach AI", page_icon="🎤", layout="wide")
 
 # ─── PDF helper ─────────────────────────────────────────
 
+
 def _extract_pdf_text(uploaded_file) -> str:
     """Extract plain text from an uploaded PDF file."""
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(uploaded_file)
         pages = [page.extract_text() or "" for page in reader.pages]
         return "\n".join(pages).strip()
-    except Exception as e:
+    except Exception:
         return ""
 
 
 # ─── Helper functions ───────────────────────────────────
+
 
 def check_api():
     try:
@@ -85,6 +89,7 @@ def get_profile(user_id):
 
 # ─── UI components ──────────────────────────────────────
 
+
 def render_score_card(label, score, max_val=100):
     """Render a score as a progress bar."""
     pct = score / max_val
@@ -97,7 +102,7 @@ def render_score_card(label, score, max_val=100):
                 <span style="font-weight: bold; color: {color};">{score:.1f}</span>
             </div>
             <div style="background: #e0e0e0; border-radius: 4px; height: 8px;">
-                <div style="background: {color}; border-radius: 4px; height: 8px; width: {pct*100:.1f}%;"></div>
+                <div style="background: {color}; border-radius: 4px; height: 8px; width: {pct * 100:.1f}%;"></div>
             </div>
         </div>
         """,
@@ -134,7 +139,9 @@ def render_session_report(report):
     # Transcript
     st.markdown("---")
     st.subheader("Transcript")
-    st.text_area("", report.get("transcript", ""), height=150, disabled=True, key="transcript_display")
+    st.text_area(
+        "", report.get("transcript", ""), height=150, disabled=True, key="transcript_display"
+    )
 
     # Filler word breakdown
     fillers = report.get("filler_words", [])
@@ -155,8 +162,10 @@ def render_session_report(report):
     # Emotion
     emotion = report.get("emotion")
     if emotion:
-        st.markdown(f"**Detected emotion:** {emotion.get('label', 'N/A')} "
-                    f"(confidence: {emotion.get('confidence', 0):.2f})")
+        st.markdown(
+            f"**Detected emotion:** {emotion.get('label', 'N/A')} "
+            f"(confidence: {emotion.get('confidence', 0):.2f})"
+        )
     if report.get("confidence_level"):
         st.markdown(f"**Confidence level:** {report['confidence_level']}")
 
@@ -168,6 +177,7 @@ def render_feedback(feedback_text):
 
 
 # ─── Main app ───────────────────────────────────────────
+
 
 def main():
     st.title("🎤 CommCoach AI")
@@ -182,7 +192,9 @@ def main():
     user_id = st.sidebar.text_input("User ID", value="default_user")
 
     # Sidebar navigation
-    mode = st.sidebar.radio("Mode", ["📊 Analyze Audio", "🎯 Mock Interview", "📜 History", "👤 Profile"])
+    mode = st.sidebar.radio(
+        "Mode", ["📊 Analyze Audio", "🎯 Mock Interview", "📜 History", "👤 Profile"]
+    )
 
     if mode == "📊 Analyze Audio":
         render_analyze_tab(user_id)
@@ -196,10 +208,14 @@ def main():
 
 def render_analyze_tab(user_id):
     st.header("📊 Analyze an Audio Recording")
-    st.markdown("Upload an audio recording of your interview answer to get instant coaching feedback.")
+    st.markdown(
+        "Upload an audio recording of your interview answer to get instant coaching feedback."
+    )
 
     topic = st.text_input("Interview topic (optional)", value="", key="analyze_topic")
-    uploaded = st.file_uploader("Upload audio file", type=["wav", "mp3", "m4a", "flac", "ogg"], key="analyze_upload")
+    uploaded = st.file_uploader(
+        "Upload audio file", type=["wav", "mp3", "m4a", "flac", "ogg"], key="analyze_upload"
+    )
 
     if uploaded and st.button("Analyze", key="analyze_btn"):
         with st.spinner("Transcribing and analyzing… this may take 30-60 seconds."):
@@ -226,9 +242,13 @@ def render_interview_tab(user_id):
     if not st.session_state.interview_active:
         col1, col2 = st.columns(2)
         with col1:
-            topic = st.text_input("Interview topic", value="general software engineering", key="interview_topic")
+            topic = st.text_input(
+                "Interview topic", value="general software engineering", key="interview_topic"
+            )
         with col2:
-            resume_file = st.file_uploader("Upload your resume (optional, PDF)", type=["pdf"], key="resume_pdf")
+            resume_file = st.file_uploader(
+                "Upload your resume (optional, PDF)", type=["pdf"], key="resume_pdf"
+            )
             resume = None
             if resume_file is not None:
                 resume = _extract_pdf_text(resume_file)
@@ -310,7 +330,9 @@ def render_interview_tab(user_id):
                 if "error" in result:
                     st.error(f"Error: {result['error']}")
                 else:
-                    st.session_state.interview_turn = result.get("turn_count", st.session_state.interview_turn + 1)
+                    st.session_state.interview_turn = result.get(
+                        "turn_count", st.session_state.interview_turn + 1
+                    )
                     st.markdown("---")
                     render_session_report(result.get("session_report"))
                     render_feedback(result.get("feedback", ""))
@@ -379,23 +401,26 @@ def render_profile_tab(user_id):
         st.subheader("Score History")
         score_data = []
         for h in history:
-            score_data.append({
-                "Date": h.get("timestamp", "")[:10],
-                "Overall": h.get("overall_score", 0),
-                "Fluency": h.get("fluency_score", 0),
-                "Grammar": h.get("grammar_score", 0),
-                "Pace": h.get("pace_score", 0),
-                "Filler": h.get("filler_score", 0),
-            })
+            score_data.append(
+                {
+                    "Date": h.get("timestamp", "")[:10],
+                    "Overall": h.get("overall_score", 0),
+                    "Fluency": h.get("fluency_score", 0),
+                    "Grammar": h.get("grammar_score", 0),
+                    "Pace": h.get("pace_score", 0),
+                    "Filler": h.get("filler_score", 0),
+                }
+            )
         st.dataframe(score_data, use_container_width=True)
 
         # Simple chart
         try:
             import pandas as pd
+
             df = pd.DataFrame(score_data)
             st.line_chart(df.set_index("Date")[["Overall", "Fluency", "Grammar", "Pace", "Filler"]])
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to render progress chart", exc_info=True)
 
     if profile.get("latest_feedback"):
         st.subheader("Latest Feedback")

@@ -8,6 +8,7 @@ from analysis.filler_words import detect_filler_words, filler_score
 
 # ── detect_filler_words ───────────────────────────────────────────────────
 
+
 class TestDetectFillerWords:
     def test_empty_transcript_returns_empty(self):
         assert detect_filler_words("") == []
@@ -90,6 +91,7 @@ class TestDetectFillerWords:
 
 # ── filler_score ──────────────────────────────────────────────────────────
 
+
 class TestFillerScore:
     def test_zero_duration_returns_zero(self):
         assert filler_score(5, 0) == 0.0
@@ -98,7 +100,7 @@ class TestFillerScore:
         assert filler_score(0, 60.0) == pytest.approx(100.0)
 
     def test_score_decreases_with_more_fillers(self):
-        score_low = filler_score(2, 60.0)   # 2/min
+        score_low = filler_score(2, 60.0)  # 2/min
         score_high = filler_score(12, 60.0)  # 12/min
         assert score_low > score_high
 
@@ -121,12 +123,15 @@ class TestFillerScore:
         score = filler_score(10, 60.0)
         assert 55.0 <= score <= 65.0
 
-    @pytest.mark.parametrize("count,duration", [
-        (0, 30.0),
-        (1, 120.0),
-        (5, 90.0),
-        (20, 60.0),
-    ])
+    @pytest.mark.parametrize(
+        "count,duration",
+        [
+            (0, 30.0),
+            (1, 120.0),
+            (5, 90.0),
+            (20, 60.0),
+        ],
+    )
     def test_various_inputs_stay_in_range(self, count, duration):
         score = filler_score(count, duration)
         assert 0.0 <= score <= 100.0

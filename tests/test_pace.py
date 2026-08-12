@@ -14,6 +14,7 @@ from schema import PauseInfo
 
 # ── calculate_pace ────────────────────────────────────────────────────────
 
+
 class TestCalculatePace:
     def test_zero_duration_returns_zero(self):
         assert calculate_pace(100, 0) == 0.0
@@ -31,11 +32,14 @@ class TestCalculatePace:
         wpm = calculate_pace(137, 60.0)
         assert wpm == round(wpm, 1)
 
-    @pytest.mark.parametrize("words,duration", [
-        (0, 60.0),
-        (200, 120.0),
-        (50, 30.0),
-    ])
+    @pytest.mark.parametrize(
+        "words,duration",
+        [
+            (0, 60.0),
+            (200, 120.0),
+            (50, 30.0),
+        ],
+    )
     def test_parametrised(self, words, duration):
         wpm = calculate_pace(words, duration)
         expected = round(words / (duration / 60.0), 1)
@@ -43,6 +47,7 @@ class TestCalculatePace:
 
 
 # ── pace_score ────────────────────────────────────────────────────────────
+
 
 class TestPaceScore:
     def test_zero_wpm_returns_zero(self):
@@ -76,12 +81,13 @@ class TestPaceScore:
 
     def test_fast_penalty_more_aggressive_than_slow(self):
         """Symmetric distance from ideal: overshooting should be penalised more."""
-        too_slow = pace_score(120 - 40)   # 80 WPM
-        too_fast = pace_score(160 + 40)   # 200 WPM
+        too_slow = pace_score(120 - 40)  # 80 WPM
+        too_fast = pace_score(160 + 40)  # 200 WPM
         assert too_fast <= too_slow
 
 
 # ── get_long_pauses ───────────────────────────────────────────────────────
+
 
 class TestGetLongPauses:
     def test_empty_list_returns_empty(self):
@@ -109,6 +115,7 @@ class TestGetLongPauses:
 
 
 # ── fluency_score ─────────────────────────────────────────────────────────
+
 
 class TestFluencyScore:
     def test_zero_duration_returns_zero(self):
@@ -138,11 +145,14 @@ class TestFluencyScore:
         s = fluency_score(75.0, 70.0, 3, 60.0, 1)
         assert s == round(s, 1)
 
-    @pytest.mark.parametrize("pace,filler,pauses,dur,long", [
-        (100.0, 100.0, 0, 120.0, 0),
-        (50.0, 50.0, 20, 60.0, 5),
-        (0.0, 0.0, 0, 60.0, 0),
-    ])
+    @pytest.mark.parametrize(
+        "pace,filler,pauses,dur,long",
+        [
+            (100.0, 100.0, 0, 120.0, 0),
+            (50.0, 50.0, 20, 60.0, 5),
+            (0.0, 0.0, 0, 60.0, 0),
+        ],
+    )
     def test_parametrised_bounds(self, pace, filler, pauses, dur, long):
         s = fluency_score(pace, filler, pauses, dur, long)
         assert 0.0 <= s <= 100.0

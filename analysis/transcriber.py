@@ -1,10 +1,10 @@
 """Sarvam AI speech-to-text transcription (with faster-whisper fallback)."""
 
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
-from typing import Optional
 
 from config import SARVAM_API_KEY, SARVAM_STT_MODEL
 
@@ -23,15 +23,12 @@ def _convert_to_wav(audio_path: str) -> str:
     """
     import av
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
 
     with av.open(audio_path) as in_container:
         # Pick the first audio stream
-        in_stream = next(
-            (s for s in in_container.streams if s.type == "audio"), None
-        )
+        in_stream = next((s for s in in_container.streams if s.type == "audio"), None)
         if in_stream is None:
             raise ValueError(f"No audio stream found in {audio_path}")
 
@@ -67,8 +64,9 @@ def _chunk_audio_pyav(audio_path: str, chunk_seconds: float = _SARVAM_MAX_SECOND
 
     Returns a list of temporary WAV file paths (caller must delete them).
     """
-    import av
     import math
+
+    import av
 
     total = _measure_duration_pyav(audio_path)
     if total <= 0:
@@ -80,14 +78,13 @@ def _chunk_audio_pyav(audio_path: str, chunk_seconds: float = _SARVAM_MAX_SECOND
 
     logger.info(
         "Audio is %.1f s — splitting into %d chunk(s) of ≤%ds for Sarvam STT.",
-        total, n_chunks, int(chunk_seconds),
+        total,
+        n_chunks,
+        int(chunk_seconds),
     )
 
     # Pre-create all output files and their encoders up-front.
-    boundaries = [
-        (i * chunk_seconds, min((i + 1) * chunk_seconds, total))
-        for i in range(n_chunks)
-    ]
+    boundaries = [(i * chunk_seconds, min((i + 1) * chunk_seconds, total)) for i in range(n_chunks)]
 
     tmp_paths: list[str] = []
     dst_containers: list = []
@@ -95,9 +92,8 @@ def _chunk_audio_pyav(audio_path: str, chunk_seconds: float = _SARVAM_MAX_SECOND
     resamplers: list = []
 
     for _ in boundaries:
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        tmp_paths.append(tmp.name)
-        tmp.close()
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_paths.append(tmp.name)
         dst = av.open(tmp.name, "w", format="wav")
         dst_containers.append(dst)
         out_st = dst.add_stream("pcm_s16le", rate=16000)
@@ -108,9 +104,7 @@ def _chunk_audio_pyav(audio_path: str, chunk_seconds: float = _SARVAM_MAX_SECOND
     try:
         # Single linear decode pass — route each frame to the correct chunk.
         with av.open(audio_path) as src:
-            src_stream = next(
-                (s for s in src.streams if s.type == "audio"), None
-            )
+            src_stream = next((s for s in src.streams if s.type == "audio"), None)
             if src_stream is None:
                 raise ValueError(f"No audio stream found in {audio_path}")
 
@@ -154,9 +148,12 @@ def _chunk_audio_pyav(audio_path: str, chunk_seconds: float = _SARVAM_MAX_SECOND
             chunk_paths.append(tmp_path)
             logger.info(
                 "Chunk %d/%d: %.1f–%.1f s → %.2f s actual → %s",
-                idx + 1, n_chunks,
-                boundaries[idx][0], boundaries[idx][1],
-                actual_dur, tmp_path,
+                idx + 1,
+                n_chunks,
+                boundaries[idx][0],
+                boundaries[idx][1],
+                actual_dur,
+                tmp_path,
             )
         else:
             os.unlink(tmp_path)
@@ -172,6 +169,7 @@ def _measure_duration_pyav(audio_path: str) -> float:
     """
     try:
         import av
+
         with av.open(audio_path) as container:
             # Try container-level duration first (fast)
             if container.duration:
@@ -185,7 +183,7 @@ def _measure_duration_pyav(audio_path: str) -> float:
     return 0.0
 
 
-def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
+def transcribe(audio_path: str, language: str | None = None) -> dict:
     """
     Transcribe an audio file using Sarvam AI (saaras) STT.
 
@@ -199,8 +197,7 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
     """
     if not SARVAM_API_KEY:
         raise RuntimeError(
-            "SARVAM_API_KEY is not set. "
-            "Add it to your .env file: SARVAM_API_KEY=<your-key>"
+            "SARVAM_API_KEY is not set. Add it to your .env file: SARVAM_API_KEY=<your-key>"
         )
 
     from sarvamai import SarvamAI
@@ -209,12 +206,23 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
 
     # Sarvam supports webm natively; convert other exotic formats to wav first.
     audio_ext = os.path.splitext(audio_path)[1].lower().lstrip(".")
-    _tmp_wav: Optional[str] = None
+    _tmp_wav: str | None = None
     path_to_send = audio_path
 
     SARVAM_SUPPORTED = {
-        "wav", "x-wav", "wave", "mp3", "mpeg", "aac", "aiff",
-        "ogg", "opus", "flac", "mp4", "amr", "webm",
+        "wav",
+        "x-wav",
+        "wave",
+        "mp3",
+        "mpeg",
+        "aac",
+        "aiff",
+        "ogg",
+        "opus",
+        "flac",
+        "mp4",
+        "amr",
+        "webm",
     }
     if audio_ext not in SARVAM_SUPPORTED:
         logger.info("Converting %s to WAV for Sarvam STT …", audio_ext)
@@ -239,13 +247,15 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
         all_segments: list[dict] = []
         time_offset = 0.0
         seg_id = 0
-        detected_language_code: Optional[str] = None
-        detected_language_probability: Optional[float] = None
+        detected_language_code: str | None = None
+        detected_language_probability: float | None = None
 
         for chunk_idx, chunk_path in enumerate(chunk_paths):
             logger.info(
                 "Sending chunk %d/%d to Sarvam STT (model=%s) …",
-                chunk_idx + 1, len(chunk_paths), SARVAM_STT_MODEL,
+                chunk_idx + 1,
+                len(chunk_paths),
+                SARVAM_STT_MODEL,
             )
             with open(chunk_path, "rb") as audio_file:
                 response = client.speech_to_text.transcribe(
@@ -263,7 +273,9 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
                 logger.info(
                     "Sarvam STT detected language: %s (probability=%.2f)",
                     detected_language_code,
-                    detected_language_probability if detected_language_probability is not None else -1.0,
+                    detected_language_probability
+                    if detected_language_probability is not None
+                    else -1.0,
                 )
 
             chunk_text = response.transcript or ""
@@ -273,9 +285,15 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
             if response.timestamps:
                 ts = response.timestamps
                 for i, chunk_word in enumerate(ts.words):
-                    start = (ts.start_time_seconds[i] if i < len(ts.start_time_seconds) else 0.0) + time_offset
-                    end = (ts.end_time_seconds[i] if i < len(ts.end_time_seconds) else 0.0) + time_offset
-                    all_segments.append({"id": seg_id, "start": start, "end": end, "text": chunk_word})
+                    start = (
+                        ts.start_time_seconds[i] if i < len(ts.start_time_seconds) else 0.0
+                    ) + time_offset
+                    end = (
+                        ts.end_time_seconds[i] if i < len(ts.end_time_seconds) else 0.0
+                    ) + time_offset
+                    all_segments.append(
+                        {"id": seg_id, "start": start, "end": end, "text": chunk_word}
+                    )
                     seg_id += 1
                     if end - time_offset > chunk_duration:
                         chunk_duration = end - time_offset
@@ -297,7 +315,9 @@ def transcribe(audio_path: str, language: Optional[str] = None) -> dict:
 
         logger.info(
             "Sarvam STT complete (%d chunk(s)). Transcript length: %d chars, duration: %.2f s.",
-            len(chunk_paths), len(full_text), duration,
+            len(chunk_paths),
+            len(full_text),
+            duration,
         )
         return {
             "text": full_text,

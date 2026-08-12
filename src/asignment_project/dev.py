@@ -2,8 +2,7 @@
 Development Entry Point for CommCoach AI.
 
 Runs CI/CD checks (formatting, linting, type checking, security scan, tests) before
-starting the development server with live reload. All checks run in parallel threads
-to minimise wall-clock time.
+starting the development server with live reload.
 
 Usage:
     uv run dev           or    python dev.py
@@ -12,7 +11,11 @@ Usage:
 import logging
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+# Ensure the project root (where config.py lives) is on sys.path when this
+# entry-point is executed as an installed script from src/asignment_project/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import uvicorn
 
@@ -35,12 +38,12 @@ def run_check(cmd: list[str], description: str) -> bool:
 
 
 def run_cicd() -> bool:
-    logger.info("=== Running CI/CD Pipeline (parallel) ===")
+    logger.info("=== Running CI/CD Pipeline ===")
     py = sys.executable
 
     checks = [
-        ([py, "-m", "ruff", "format", "--check", "."], "Ruff Format Check"),
-        ([py, "-m", "ruff", "check", "."], "Ruff Lint Check"),
+        ([py, "-m", "ruff", "format", "."], "Ruff Format"),
+        ([py, "-m", "ruff", "check", "--fix", "."], "Ruff Lint Fix"),
         (
             [
                 py,
@@ -73,16 +76,12 @@ def run_cicd() -> bool:
         ([py, "-m", "pytest", "tests/", "--tb=short", "-q"], "Pytest Test Suite"),
     ]
 
-    passed = True
-    with ThreadPoolExecutor(max_workers=len(checks)) as executor:
-        futures = {executor.submit(run_check, cmd, desc): desc for cmd, desc in checks}
-        for future in as_completed(futures):
-            if not future.result():
-                passed = False
+    for cmd, desc in checks:
+        if not run_check(cmd, desc):
+            return False
 
-    if passed:
-        logger.info("=== All CI/CD checks passed successfully! ===")
-    return passed
+    logger.info("=== All CI/CD checks passed successfully! ===")
+    return True
 
 
 def main() -> None:

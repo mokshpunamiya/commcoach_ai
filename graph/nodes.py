@@ -6,15 +6,20 @@ state dict (only the fields it changed).
 """
 
 from __future__ import annotations
-import logging
-import json
+
 import concurrent.futures
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from schema import SessionReport
+import json
+import logging
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
 from analysis.analyzer import analyze_audio, analyze_transcript_only, analyze_with_transcript
+from config import (
+    SARVAM_API_KEY,
+    SARVAM_MODEL,
+)
 from graph.memory import retrieve_user_memory, update_user_memory
 from graph.state import CoachState
-from config import SARVAM_API_KEY, SARVAM_MODEL, LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL
 from prompts import FEEDBACK_SYSTEM, FEEDBACK_USER, QUESTION_SYSTEM, QUESTION_USER
 
 logger = logging.getLogger(__name__)
@@ -29,10 +34,10 @@ def _get_sarvam_client():
     if _sarvam_client is None:
         if not SARVAM_API_KEY:
             raise RuntimeError(
-                "SARVAM_API_KEY is not set. "
-                "Add it to your .env file: SARVAM_API_KEY=<your-key>"
+                "SARVAM_API_KEY is not set. Add it to your .env file: SARVAM_API_KEY=<your-key>"
             )
         from sarvamai import SarvamAI
+
         _sarvam_client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
         logger.info("Sarvam AI client initialised (model=%s).", SARVAM_MODEL)
     return _sarvam_client
@@ -69,8 +74,8 @@ def _sarvam_chat(messages: list) -> str:
         future = ex.submit(_call)
         try:
             response = future.result(timeout=25)
-        except concurrent.futures.TimeoutError:
-            raise RuntimeError("Sarvam LLM call timed out after 25 seconds")
+        except concurrent.futures.TimeoutError as exc:
+            raise RuntimeError("Sarvam LLM call timed out after 25 seconds") from exc
     return response.choices[0].message.content or ""
 
 
@@ -83,18 +88,24 @@ def get_llm():
 #  NODE: Retrieve long-term user memory
 # ════════════════════════════════════════════════════════
 
+
 def retrieve_memory_node(state: CoachState) -> dict:
     """Pull the user's long-term coaching profile from the store."""
     user_id = state.get("user_id", "default_user")
     profile = retrieve_user_memory(user_id)
-    logger.info("Retrieved long-term memory for '%s': %d past sessions, trend=%s",
-                user_id, profile.get("total_sessions", 0), profile.get("trend", "new"))
+    logger.info(
+        "Retrieved long-term memory for '%s': %d past sessions, trend=%s",
+        user_id,
+        profile.get("total_sessions", 0),
+        profile.get("trend", "new"),
+    )
     return {"user_memory": profile}
 
 
 # ════════════════════════════════════════════════════════
 #  NODE: Transcribe audio
 # ════════════════════════════════════════════════════════
+
 
 def transcribe_node(state: CoachState) -> dict:
     """Call Sarvam STT on the audio file and store the transcript + duration.
@@ -110,10 +121,15 @@ def transcribe_node(state: CoachState) -> dict:
         if existing_transcript.strip():
             # Text-only path: nothing to transcribe, keep what we have.
             return {"error": None}
-        return {"error": "No audio_path provided for transcription.", "transcript": "", "duration_seconds": 0.0}
+        return {
+            "error": "No audio_path provided for transcription.",
+            "transcript": "",
+            "duration_seconds": 0.0,
+        }
 
     try:
         from analysis.transcriber import transcribe
+
         result = transcribe(audio_path)
         return {
             "transcript": result["text"],
@@ -135,6 +151,7 @@ def transcribe_node(state: CoachState) -> dict:
 # ════════════════════════════════════════════════════════
 #  NODE: Analyse transcript + audio
 # ════════════════════════════════════════════════════════
+
 
 def analyze_node(state: CoachState) -> dict:
     """Run analysis pipeline using the transcript already in state (no re-transcription)."""
@@ -163,7 +180,9 @@ def analyze_node(state: CoachState) -> dict:
 
         # Convert pydantic model to dict for state storage
         return {
-            "session_report": report.model_dump() if hasattr(report, "model_dump") else report.dict(),
+            "session_report": report.model_dump()
+            if hasattr(report, "model_dump")
+            else report.dict(),
             "error": None,
         }
     except Exception as e:
@@ -175,11 +194,15 @@ def analyze_node(state: CoachState) -> dict:
 #  NODE: Generate coaching feedback
 # ════════════════════════════════════════════════════════
 
+
 def generate_feedback_node(state: CoachState) -> dict:
     """Use the LLM to generate coaching feedback from the session report."""
     report = state.get("session_report")
     if not report:
-        return {"feedback": "No analysis available to generate feedback.", "error": "Missing session_report"}
+        return {
+            "feedback": "No analysis available to generate feedback.",
+            "error": "Missing session_report",
+        }
 
     user_memory = state.get("user_memory", {})
     profile_summary = _summarize_user_profile(user_memory)
@@ -191,12 +214,14 @@ def generate_feedback_node(state: CoachState) -> dict:
 
     messages = [
         SystemMessage(content=FEEDBACK_SYSTEM.render()),
-        HumanMessage(content=FEEDBACK_USER.render(
-            session_report_json=report_json,
-            user_profile_summary=profile_summary,
-            current_question=current_q,
-            topic=topic,
-        )),
+        HumanMessage(
+            content=FEEDBACK_USER.render(
+                session_report_json=report_json,
+                user_profile_summary=profile_summary,
+                current_question=current_q,
+                topic=topic,
+            )
+        ),
     ]
 
     try:
@@ -208,9 +233,7 @@ def generate_feedback_node(state: CoachState) -> dict:
     # Also store in conversation messages for memory
     return {
         "feedback": feedback_text,
-        "messages": [
-            AIMessage(content=f"[Coach Feedback]\n{feedback_text}")
-        ],
+        "messages": [AIMessage(content=f"[Coach Feedback]\n{feedback_text}")],
     }
 
 
@@ -244,9 +267,13 @@ def _fallback_feedback(report: dict) -> str:
     lines.append("\n## 🔧 Areas to Improve")
     relevancy = report.get("answer_relevancy_score", 0)
     if relevancy < 50:
-        lines.append(f"- Your answer scored low on relevancy ({relevancy:.0f}/100) — make sure you address the question directly.")
+        lines.append(
+            f"- Your answer scored low on relevancy ({relevancy:.0f}/100) — make sure you address the question directly."
+        )
     elif relevancy < 70:
-        lines.append(f"- Your answer was partially relevant ({relevancy:.0f}/100) — try to stay more focused on what was asked.")
+        lines.append(
+            f"- Your answer was partially relevant ({relevancy:.0f}/100) — try to stay more focused on what was asked."
+        )
 
     wpm = report.get("words_per_minute", 0)
     if wpm > 160:
@@ -256,11 +283,15 @@ def _fallback_feedback(report: dict) -> str:
 
     fc = report.get("filler_word_count", 0)
     if fc > 5:
-        lines.append(f"- Reduce filler words (found {fc}). Practice pausing instead of saying 'um'.")
+        lines.append(
+            f"- Reduce filler words (found {fc}). Practice pausing instead of saying 'um'."
+        )
 
     gi = report.get("grammar_issue_count", 0)
     if gi > 2:
-        lines.append(f"- Watch grammar ({gi} issues detected). Review your sentences before speaking.")
+        lines.append(
+            f"- Watch grammar ({gi} issues detected). Review your sentences before speaking."
+        )
 
     return "\n".join(lines)
 
@@ -268,6 +299,7 @@ def _fallback_feedback(report: dict) -> str:
 # ════════════════════════════════════════════════════════
 #  NODE: Generate next interview question
 # ════════════════════════════════════════════════════════
+
 
 def generate_question_node(state: CoachState) -> dict:
     """Generate the next interview question using the LLM."""
@@ -295,14 +327,16 @@ def generate_question_node(state: CoachState) -> dict:
 
     messages = [
         SystemMessage(content=QUESTION_SYSTEM.render()),
-        HumanMessage(content=QUESTION_USER.render(
-            topic=topic,
-            turn_count=turn_count,
-            resume=resume[:2000] if resume else "Not provided",
-            profile_summary=profile_summary,
-            conversation_summary=conversation_summary,
-            prev_analysis_summary=prev_analysis,
-        )),
+        HumanMessage(
+            content=QUESTION_USER.render(
+                topic=topic,
+                turn_count=turn_count,
+                resume=resume[:2000] if resume else "Not provided",
+                profile_summary=profile_summary,
+                conversation_summary=conversation_summary,
+                prev_analysis_summary=prev_analysis,
+            )
+        ),
     ]
 
     try:
@@ -314,9 +348,7 @@ def generate_question_node(state: CoachState) -> dict:
     return {
         "current_question": question,
         "turn_count": turn_count + 1,
-        "messages": [
-            AIMessage(content=f"[Interviewer Question]\n{question}")
-        ],
+        "messages": [AIMessage(content=f"[Interviewer Question]\n{question}")],
     }
 
 
@@ -351,6 +383,7 @@ def _fallback_question(topic: str, turn: int) -> str:
 #  NODE: Update long-term user memory
 # ════════════════════════════════════════════════════════
 
+
 def update_memory_node(state: CoachState) -> dict | None:
     """Persist this session's results to the user's long-term profile."""
     user_id = state.get("user_id", "default_user")
@@ -368,6 +401,7 @@ def update_memory_node(state: CoachState) -> dict | None:
 # ════════════════════════════════════════════════════════
 #  ROUTING FUNCTION
 # ════════════════════════════════════════════════════════
+
 
 def route_action(state: CoachState) -> str:
     """Route to the correct sub-graph based on the action field."""

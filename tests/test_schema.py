@@ -17,6 +17,7 @@ from schema import (
 
 # ── FillerWordHit ──────────────────────────────────────────────────────────
 
+
 class TestFillerWordHit:
     def test_valid_construction(self):
         hit = FillerWordHit(word="uh", count=3, timestamps=[0.5, 1.2, 2.8])
@@ -39,6 +40,7 @@ class TestFillerWordHit:
 
 
 # ── GrammarIssue ──────────────────────────────────────────────────────────
+
 
 class TestGrammarIssue:
     def test_valid_with_suggestion(self):
@@ -63,6 +65,7 @@ class TestGrammarIssue:
 
 # ── PauseInfo ─────────────────────────────────────────────────────────────
 
+
 class TestPauseInfo:
     def test_pause_duration_stored(self):
         p = PauseInfo(start=1.0, end=2.5, duration=1.5)
@@ -76,6 +79,7 @@ class TestPauseInfo:
 
 # ── EmotionInfo ───────────────────────────────────────────────────────────
 
+
 class TestEmotionInfo:
     def test_valid(self):
         e = EmotionInfo(label="happy", confidence=0.92)
@@ -84,6 +88,7 @@ class TestEmotionInfo:
 
 
 # ── SessionReport ─────────────────────────────────────────────────────────
+
 
 class TestSessionReport:
     def test_defaults(self):
@@ -140,6 +145,7 @@ class TestSessionReport:
 
 # ── FeedbackResponse ──────────────────────────────────────────────────────
 
+
 class TestFeedbackResponse:
     def test_feedback_required(self):
         fb = FeedbackResponse(feedback="Great job!")
@@ -157,6 +163,7 @@ class TestFeedbackResponse:
 
 
 # ── Request models ────────────────────────────────────────────────────────
+
 
 class TestRequestModels:
     def test_start_interview_defaults(self):

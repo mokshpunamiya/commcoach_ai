@@ -15,12 +15,15 @@ Two layers:
 """
 
 from __future__ import annotations
+
 import json
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from langgraph.checkpoint.sqlite import SqliteSaver
+
 from config import CHECKPOINT_DB_PATH, DB_PATH
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,7 @@ def get_checkpointer() -> SqliteSaver:
 
 
 # ─── SQLite-backed profile store ────────────────────────
+
 
 class SqliteProfileStore:
     """
@@ -115,6 +119,7 @@ def get_store() -> SqliteProfileStore:
 
 # ─── Helper functions for long-term memory ──────────────
 
+
 def _user_namespace(user_id: str) -> tuple[str, str]:
     return ("user_profile", user_id)
 
@@ -146,7 +151,7 @@ def update_user_memory(user_id: str, session_report: dict, feedback: str) -> dic
 
     # Append score history
     score_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "overall_score": session_report.get("overall_score", 0),
         "fluency_score": session_report.get("fluency_score", 0),
         "grammar_score": session_report.get("grammar_score", 0),
@@ -171,14 +176,18 @@ def update_user_memory(user_id: str, session_report: dict, feedback: str) -> dic
 
     # Update counts and timestamps
     profile["total_sessions"] = profile.get("total_sessions", 0) + 1
-    profile["last_session"] = datetime.now(timezone.utc).isoformat()
+    profile["last_session"] = datetime.now(UTC).isoformat()
     profile["latest_feedback"] = feedback[:500] if feedback else ""
 
     # Compute trend
     if len(profile["score_history"]) >= 2:
         recent = profile["score_history"][-5:]
         avg_recent = sum(s["overall_score"] for s in recent) / len(recent)
-        older = profile["score_history"][:-5] if len(profile["score_history"]) > 5 else profile["score_history"][:-1]
+        older = (
+            profile["score_history"][:-5]
+            if len(profile["score_history"]) > 5
+            else profile["score_history"][:-1]
+        )
         avg_older = sum(s["overall_score"] for s in older) / len(older) if older else avg_recent
         if avg_recent > avg_older + 2:
             profile["trend"] = "improving"
@@ -188,7 +197,9 @@ def update_user_memory(user_id: str, session_report: dict, feedback: str) -> dic
             profile["trend"] = "stable"
 
     store.put(ns, "profile", profile)
-    logger.info("Updated long-term memory for user '%s' (session #%d)", user_id, profile["total_sessions"])
+    logger.info(
+        "Updated long-term memory for user '%s' (session #%d)", user_id, profile["total_sessions"]
+    )
     return profile
 
 
@@ -197,7 +208,7 @@ def _default_profile() -> dict:
         "score_history": [],
         "weak_areas": [],
         "total_sessions": 0,
-        "first_session": datetime.now(timezone.utc).isoformat(),
+        "first_session": datetime.now(UTC).isoformat(),
         "last_session": None,
         "trend": "new",
         "latest_feedback": "",

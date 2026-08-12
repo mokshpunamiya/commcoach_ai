@@ -7,13 +7,14 @@ Usage:
   python main.py setup      — check all dependencies are installed
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 
 # Force UTF-8 output on Windows so Unicode characters render correctly
 if sys.platform == "win32":
     import io
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 def run_api():
     """Start FastAPI backend."""
     import uvicorn
+
     from config import API_HOST, API_PORT
+
     logger.info("Starting CommCoach API on %s:%d", API_HOST, API_PORT)
     uvicorn.run("api.main:app", host=API_HOST, port=API_PORT, reload=False)
 
@@ -40,7 +43,11 @@ def run_demo():
 
     # Check for sample audio
     uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
-    samples = [f for f in os.listdir(uploads_dir) if f.endswith((".wav", ".mp3", ".m4a"))] if os.path.exists(uploads_dir) else []
+    samples = (
+        [f for f in os.listdir(uploads_dir) if f.endswith((".wav", ".mp3", ".m4a"))]
+        if os.path.exists(uploads_dir)
+        else []
+    )
 
     if not samples:
         print("\nNo audio files found in uploads/.")
@@ -50,7 +57,7 @@ def run_demo():
 
     print(f"\nFound {len(samples)} audio file(s):")
     for i, s in enumerate(samples):
-        print(f"  {i+1}. {s}")
+        print(f"  {i + 1}. {s}")
 
     choice = input("\nSelect a file number (or press Enter for #1): ").strip()
     idx = int(choice) - 1 if choice else 0
@@ -60,6 +67,7 @@ def run_demo():
     print("This may take 30-60 seconds…\n")
 
     from graph.graph import analyze_audio_file
+
     result = analyze_audio_file(audio_path=audio_path, user_id="demo_user")
 
     report = result.get("session_report", {})
@@ -121,10 +129,11 @@ def run_setup():
 
     # Check API key
     from config import OPENAI_API_KEY
+
     if OPENAI_API_KEY:
-        print(f"  ✓ OpenAI API key set")
+        print("  ✓ OpenAI API key set")
     else:
-        print(f"  ⚠ OpenAI API key not set — set OPENAI_API_KEY env var")
+        print("  ⚠ OpenAI API key not set — set OPENAI_API_KEY env var")
         all_ok = False
 
     print()

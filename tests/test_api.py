@@ -19,6 +19,7 @@ os.environ.setdefault("OPENAI_API_KEY", "ci-dummy")
 
 # ── Stub heavyweight modules before any project import ────────────────────
 
+
 def _make_slowapi_stubs() -> dict[str, ModuleType]:
     """Return a minimal stub for the slowapi stack."""
     slowapi_mod = MagicMock()
@@ -97,6 +98,7 @@ client = TestClient(app, raise_server_exceptions=True)
 
 # ── /health ────────────────────────────────────────────────────────────────
 
+
 class TestHealthEndpoint:
     def test_returns_200(self):
         resp = client.get("/health")
@@ -113,6 +115,7 @@ class TestHealthEndpoint:
 
 
 # ── /languages ─────────────────────────────────────────────────────────────
+
 
 class TestLanguagesEndpoint:
     def test_returns_200(self):
@@ -138,6 +141,7 @@ class TestLanguagesEndpoint:
 
 # ── / (root) ──────────────────────────────────────────────────────────────
 
+
 class TestRootEndpoint:
     def test_root_responds(self):
         resp = client.get("/")
@@ -146,6 +150,7 @@ class TestRootEndpoint:
 
 
 # ── /sessions/{user_id} ───────────────────────────────────────────────────
+
 
 class TestSessionsEndpoint:
     def test_unknown_user_returns_200(self):
@@ -163,6 +168,7 @@ class TestSessionsEndpoint:
 
 # ── DELETE /sessions/reset/{user_id} ──────────────────────────────────────
 
+
 class TestResetSessionsEndpoint:
     def test_returns_200(self):
         resp = client.delete("/sessions/reset/ci_reset_user")
@@ -177,6 +183,7 @@ class TestResetSessionsEndpoint:
 
 # ── /profile/{user_id} ────────────────────────────────────────────────────
 
+
 class TestProfileEndpoint:
     def test_returns_200(self):
         resp = client.get("/profile/ci_test_user")
@@ -188,6 +195,7 @@ class TestProfileEndpoint:
 
 
 # ── /analyze/text ─────────────────────────────────────────────────────────
+
 
 class TestAnalyzeTextEndpoint:
     def test_empty_transcript_rejected(self):
@@ -209,6 +217,7 @@ class TestAnalyzeTextEndpoint:
 
 
 # ── /resume/parse ─────────────────────────────────────────────────────────
+
 
 class TestResumeParse:
     def test_no_file_returns_422(self):

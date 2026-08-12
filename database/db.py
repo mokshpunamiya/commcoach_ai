@@ -1,11 +1,12 @@
 """SQLite database for session history (supplements LangGraph's checkpointer)."""
 
 from __future__ import annotations
-import sqlite3
+
 import json
+import sqlite3
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+
 from config import DB_PATH
 
 
@@ -47,10 +48,10 @@ def init_db():
     conn.close()
 
 
-def create_session(user_id: str, session_type: str, topic: Optional[str] = None) -> str:
+def create_session(user_id: str, session_type: str, topic: str | None = None) -> str:
     """Create a new session record and return its ID."""
     session_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn = get_conn()
     conn.execute(
         "INSERT INTO sessions (id, user_id, type, topic, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -64,22 +65,27 @@ def create_session(user_id: str, session_type: str, topic: Optional[str] = None)
 def save_turn(
     session_id: str,
     turn_number: int,
-    question: Optional[str] = None,
-    transcript: Optional[str] = None,
-    session_report: Optional[dict] = None,
-    feedback: Optional[str] = None,
+    question: str | None = None,
+    transcript: str | None = None,
+    session_report: dict | None = None,
+    feedback: str | None = None,
 ) -> str:
     """Save a single Q&A turn."""
     turn_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn = get_conn()
     conn.execute(
         """INSERT INTO turns (id, session_id, turn_number, question, transcript, session_report, feedback, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            turn_id, session_id, turn_number, question, transcript,
+            turn_id,
+            session_id,
+            turn_number,
+            question,
+            transcript,
             json.dumps(session_report) if session_report else None,
-            feedback, now,
+            feedback,
+            now,
         ),
     )
     conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
@@ -123,9 +129,9 @@ def reset_user_sessions(user_id: str) -> int:
     """Delete all sessions and turns for a user. Returns the number of sessions deleted."""
     conn = get_conn()
     # Count first so we can report back
-    count = conn.execute(
-        "SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,)
-    ).fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,)).fetchone()[
+        0
+    ]
     # Cascade-delete turns for every session owned by this user
     conn.execute(
         "DELETE FROM turns WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)",

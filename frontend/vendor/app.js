@@ -653,6 +653,10 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   hidden
 }){
 
+  /* ── Interview-start loading guard ── */
+  const [starting,setStarting]=useState(false);
+  const startingRef=useRef(false);
+
   /* ── Audio recording state ── */
   const [answerMode,setAnswerMode]=useState("text");
   const [isRecording,setIsRecording]=useState(false);
@@ -693,7 +697,8 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   useEffect(()=>{if(phase==="setup"&&defaultType&&!rawLog.length)setInterviewType(defaultType);},[defaultType]);
 
   const start=async()=>{
-    setSetupErr(null);
+    if(startingRef.current)return;
+    startingRef.current=true;setStarting(true);setSetupErr(null);
     const resumeText=(useResume&&resume)?(resume.text||resume.summary||""):null;
     const localBank=generateQuestions(interviewType,resume,useResume);
     const qs=localBank.slice(0,TOTAL_QUESTIONS);
@@ -706,7 +711,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
         sid=data.session_id||null;
         if(data.question)qs[0]=data.question;
       }
-    }catch(_){}
+    }catch(_){}finally{startingRef.current=false;setStarting(false);}
     setSessionId(sid);
     setQuestions(qs);setIdx(0);setRawLog([]);setScoredLog([]);setAnswer("");setEvalProgress(0);setPhase("interview");
   };
@@ -816,7 +821,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
       e("div",{style:{marginTop:14,padding:"10px 14px",background:C.bg2,borderRadius:10,fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.6}},
         "You'll answer ",e("strong",{style:{color:C.text}},TOTAL_QUESTIONS," questions")," one by one. All answers collected first — evaluation happens together at the end."
       ),
-      e("button",{onClick:start,style:{...pBtn,width:"100%",marginTop:18}},"Start interview ",e(SvgArrow,{size:15,color:C.bg}))
+      e("button",{onClick:start,disabled:starting,style:{...pBtn,width:"100%",marginTop:18,opacity:starting?0.6:1,cursor:starting?"default":"pointer"}},starting?"Starting…":"Start interview ",!starting&&e(SvgArrow,{size:15,color:C.bg}))
     )
   ));
 

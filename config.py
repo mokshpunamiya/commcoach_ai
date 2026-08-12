@@ -1,13 +1,14 @@
 """Central configuration for CommCoach AI."""
 
-from pathlib import Path
-import os
 import json
+import os
+from pathlib import Path
 
 # Load .env file before any os.getenv() calls.
 # python-dotenv is already installed (dotenv package in .venv).
 try:
     from dotenv import load_dotenv
+
     load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
 except ImportError:
     pass  # dotenv not installed — fall back to plain environment variables
@@ -21,11 +22,15 @@ CHECKPOINT_DB_PATH = BASE_DIR / "checkpoints.db"
 
 # ─── Sarvam AI ──────────────────────────────────────────
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")
-SARVAM_MODEL = os.getenv("SARVAM_MODEL", "sarvam-105b")  # Chat model (sarvam-105b or sarvam-105b-conversations)
-SARVAM_STT_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v3")  # STT model (v3/v4/saarika:v2.5/saarika:flash)
+SARVAM_MODEL = os.getenv(
+    "SARVAM_MODEL", "sarvam-105b"
+)  # Chat model (sarvam-105b or sarvam-105b-conversations)
+SARVAM_STT_MODEL = os.getenv(
+    "SARVAM_STT_MODEL", "saaras:v3"
+)  # STT model (v3/v4/saarika:v2.5/saarika:flash)
 
 # ─── LLM (kept for backward compatibility) ──────────────
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "sarvam")    # "sarvam" | "openai"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "sarvam")  # "sarvam" | "openai"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", None)  # set if using a proxy
@@ -38,7 +43,7 @@ WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 # ─── Analysis thresholds ────────────────────────────────
 IDEAL_WPM_MIN = 120
 IDEAL_WPM_MAX = 160
-PAUSE_THRESHOLD_SEC = 0.5      # silences longer than this count as pauses
+PAUSE_THRESHOLD_SEC = 0.5  # silences longer than this count as pauses
 LONG_PAUSE_THRESHOLD_SEC = 1.5  # silences longer than this are "long pauses"
 
 # ─── Language + filler-word registry (single source of truth) ───────
@@ -50,16 +55,10 @@ with open(_LANG_REGISTRY_PATH, encoding="utf-8") as _f:
 SUPPORTED_LANGUAGES: list[str] = [lang["label"] for lang in _LANG_REGISTRY]
 
 # Map from display label → BCP-47 code for the Sarvam STT API
-LANGUAGE_CODES: dict[str, str] = {
-    lang["label"]: lang["code"] for lang in _LANG_REGISTRY
-}
+LANGUAGE_CODES: dict[str, str] = {lang["label"]: lang["code"] for lang in _LANG_REGISTRY}
 
 # Union of ALL filler words across every language — used when language is unknown
-FILLER_WORDS: set[str] = {
-    filler
-    for lang in _LANG_REGISTRY
-    for filler in lang["fillers"]
-}
+FILLER_WORDS: set[str] = {filler for lang in _LANG_REGISTRY for filler in lang["fillers"]}
 
 # Per-language filler sets — use when the transcript language is known
 FILLER_WORDS_BY_LANGUAGE: dict[str, set[str]] = {

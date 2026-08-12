@@ -6,7 +6,9 @@ function derived from pace, pause, and filler metrics.
 """
 
 from __future__ import annotations
+
 import logging
+
 from schema import EmotionInfo
 
 logger = logging.getLogger(__name__)
@@ -65,32 +67,32 @@ def approximate_confidence(
 
     # ── Pace (speak naturally; too fast or too slow both hurt) ──────────
     if 120 <= wpm <= 160:
-        score += 15          # ideal range
+        score += 15  # ideal range
     elif 100 <= wpm < 120 or 160 < wpm <= 180:
-        score += 5           # slightly off but acceptable
+        score += 5  # slightly off but acceptable
     elif wpm < 80 or wpm > 200:
-        score -= 25          # clearly problematic
+        score -= 25  # clearly problematic
     else:
-        score -= 10          # moderately off
+        score -= 10  # moderately off
 
     # ── Pauses (too many → nervous; moderate is fine) ───────────────────
     if pause_rate > 20:
-        score -= 20          # very choppy
+        score -= 20  # very choppy
     elif pause_rate > 12:
         score -= 8
     elif pause_rate < 6:
-        score += 8           # few pauses = smoother delivery
+        score += 8  # few pauses = smoother delivery
     # 6–12/min is neutral
 
     # ── Filler words (each rate band has a real cost) ───────────────────
     if filler_rate > 10:
-        score -= 25          # heavy filler use kills confidence perception
+        score -= 25  # heavy filler use kills confidence perception
     elif filler_rate > 5:
         score -= 15
     elif filler_rate > 2:
         score -= 5
     else:
-        score += 8           # nearly filler-free
+        score += 8  # nearly filler-free
 
     # "high" now requires solid performance across the board (≥ 68)
     if score >= 68:

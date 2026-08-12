@@ -28,10 +28,7 @@ def _write_wav(path: str, duration_s: float = 2.0, sample_rate: int = 16_000) ->
 
     n_samples = int(duration_s * sample_rate)
     amplitude = 16_000
-    samples = [
-        int(amplitude * np.sin(2 * np.pi * 440 * i / sample_rate))
-        for i in range(n_samples)
-    ]
+    samples = [int(amplitude * np.sin(2 * np.pi * 440 * i / sample_rate)) for i in range(n_samples)]
     with wave.open(path, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)

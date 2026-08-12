@@ -1,7 +1,6 @@
 """Shared data schemas — the 'contract' between analysis, graph, and API."""
 
 from pydantic import BaseModel, Field
-from typing import Optional
 
 
 class FillerWordHit(BaseModel):
@@ -15,7 +14,7 @@ class GrammarIssue(BaseModel):
     category: str
     offset: int = 0
     length: int = 0
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
 
 class PauseInfo(BaseModel):
@@ -31,6 +30,7 @@ class EmotionInfo(BaseModel):
 
 class SessionReport(BaseModel):
     """The single JSON contract between analysis (Person B) and LLM (Person C)."""
+
     transcript: str = ""
     word_count: int = 0
     duration_seconds: float = 0.0
@@ -42,31 +42,31 @@ class SessionReport(BaseModel):
     filler_word_rate: float = 0.0  # per minute
     grammar_issues: list[GrammarIssue] = Field(default_factory=list)
     grammar_issue_count: int = 0
-    fluency_score: float = 0.0        # 0-100
-    grammar_score: float = 0.0        # 0-100
+    fluency_score: float = 0.0  # 0-100
+    grammar_score: float = 0.0  # 0-100
     pronunciation_score: float = 0.0  # 0-100 (from LLM scorer)
-    pace_score: float = 0.0           # 0-100
-    filler_score: float = 0.0         # 0-100
+    pace_score: float = 0.0  # 0-100
+    filler_score: float = 0.0  # 0-100
     answer_relevancy_score: float = 0.0  # 0-100  (how well answer addresses the question)
-    overall_score: float = 0.0        # 0-100
-    emotion: Optional[EmotionInfo] = None
-    confidence_level: Optional[str] = None  # "low" | "medium" | "high"
+    overall_score: float = 0.0  # 0-100
+    emotion: EmotionInfo | None = None
+    confidence_level: str | None = None  # "low" | "medium" | "high"
     llm_grammar_issues: list[str] = Field(default_factory=list)  # from LLM scorer
 
 
 class FeedbackResponse(BaseModel):
     feedback: str
-    next_question: Optional[str] = None
-    session_report: Optional[SessionReport] = None
+    next_question: str | None = None
+    session_report: SessionReport | None = None
 
 
 class StartInterviewRequest(BaseModel):
     user_id: str = "default_user"
     topic: str = "general software engineering"
-    resume_text: Optional[str] = None
+    resume_text: str | None = None
 
 
 class AnalyzeRequest(BaseModel):
     user_id: str = "default_user"
-    session_id: Optional[str] = None
-    interview_topic: Optional[str] = None
+    session_id: str | None = None
+    interview_topic: str | None = None

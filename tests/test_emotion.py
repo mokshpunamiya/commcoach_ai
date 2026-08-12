@@ -13,20 +13,24 @@ from schema import EmotionInfo
 
 # ── emotion_to_confidence ─────────────────────────────────────────────────
 
+
 class TestEmotionToConfidence:
     def test_none_emotion_returns_none(self):
         assert emotion_to_confidence(None) is None
 
-    @pytest.mark.parametrize("label,expected", [
-        ("happy", "high"),
-        ("calm", "high"),
-        ("neutral", "medium"),
-        ("surprised", "medium"),
-        ("angry", "low"),
-        ("fearful", "low"),
-        ("sad", "low"),
-        ("disgust", "low"),
-    ])
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            ("happy", "high"),
+            ("calm", "high"),
+            ("neutral", "medium"),
+            ("surprised", "medium"),
+            ("angry", "low"),
+            ("fearful", "low"),
+            ("sad", "low"),
+            ("disgust", "low"),
+        ],
+    )
     def test_known_labels(self, label, expected):
         emotion = EmotionInfo(label=label, confidence=0.9)
         assert emotion_to_confidence(emotion) == expected
@@ -47,6 +51,7 @@ class TestEmotionToConfidence:
 
 
 # ── approximate_confidence ────────────────────────────────────────────────
+
 
 class TestApproximateConfidence:
     def test_zero_duration_returns_medium(self):
@@ -103,18 +108,21 @@ class TestApproximateConfidence:
         """All three dimensions healthy → must produce "high"."""
         result = approximate_confidence(
             wpm=135,
-            pause_count=3,      # pause_rate = 3/min → < 6 → +8
+            pause_count=3,  # pause_rate = 3/min → < 6 → +8
             duration_seconds=60.0,
-            filler_count=0,     # filler_rate = 0/min → +8
+            filler_count=0,  # filler_rate = 0/min → +8
         )
         assert result == "high"
 
-    @pytest.mark.parametrize("wpm,pauses,dur,fillers", [
-        (130, 2, 60.0, 0),
-        (50, 30, 60.0, 20),
-        (200, 5, 60.0, 5),
-        (100, 10, 90.0, 3),
-    ])
+    @pytest.mark.parametrize(
+        "wpm,pauses,dur,fillers",
+        [
+            (130, 2, 60.0, 0),
+            (50, 30, 60.0, 20),
+            (200, 5, 60.0, 5),
+            (100, 10, 90.0, 3),
+        ],
+    )
     def test_parametrised_always_valid(self, wpm, pauses, dur, fillers):
         result = approximate_confidence(wpm, pauses, dur, fillers)
         assert result in {"low", "medium", "high"}

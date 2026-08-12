@@ -1,15 +1,16 @@
 """Pace and pause analysis using librosa."""
 
 from __future__ import annotations
+
 import logging
-import numpy as np
-from schema import PauseInfo
+
 from config import (
-    IDEAL_WPM_MIN,
     IDEAL_WPM_MAX,
-    PAUSE_THRESHOLD_SEC,
+    IDEAL_WPM_MIN,
     LONG_PAUSE_THRESHOLD_SEC,
+    PAUSE_THRESHOLD_SEC,
 )
+from schema import PauseInfo
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,11 @@ def _load_audio_numpy(audio_path: str):
     Falls back to PyAV (handles webm, mp4, etc.) when soundfile fails.
     Returns (samples: np.ndarray, sample_rate: int).
     """
-    import numpy as np
 
     # 1. Try soundfile (fast path for wav/flac/ogg)
     try:
         import soundfile as sf
+
         data, sr = sf.read(audio_path, dtype="float32", always_2d=False)
         if data.ndim == 2:
             data = data.mean(axis=1)
@@ -41,22 +42,22 @@ def _load_audio_numpy(audio_path: str):
         if sr != 16000:
             try:
                 import librosa
+
                 data = librosa.resample(data, orig_sr=sr, target_sr=16000)
-            except Exception:
-                pass  # keep original sr, close enough for RMS
+            except Exception:  # noqa: BLE001
+                logger.debug("librosa resample failed, keeping original sr", exc_info=True)
             sr = 16000
         return data, sr
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        logger.debug("soundfile load failed, falling back to PyAV", exc_info=True)
 
     # 2. Fallback: decode with PyAV, resample to 16 kHz mono
     try:
         import av
+
         samples_list = []
         with av.open(audio_path) as container:
-            audio_stream = next(
-                (s for s in container.streams if s.type == "audio"), None
-            )
+            audio_stream = next((s for s in container.streams if s.type == "audio"), None)
             if audio_stream is None:
                 return None, 0
             resampler = av.AudioResampler(format="fltp", layout="mono", rate=16000)
@@ -66,6 +67,7 @@ def _load_audio_numpy(audio_path: str):
                     samples_list.append(arr[0])
         if samples_list:
             import numpy as np
+
             data = np.concatenate(samples_list)
             return data, 16000
     except Exception as e:
@@ -120,11 +122,13 @@ def detect_pauses(audio_path: str) -> tuple[list[PauseInfo], int]:
             end_sec = i / frames_per_second
             duration = end_sec - start_sec
             if duration >= PAUSE_THRESHOLD_SEC:
-                pauses.append(PauseInfo(
-                    start=round(start_sec, 2),
-                    end=round(end_sec, 2),
-                    duration=round(duration, 2),
-                ))
+                pauses.append(
+                    PauseInfo(
+                        start=round(start_sec, 2),
+                        end=round(end_sec, 2),
+                        duration=round(duration, 2),
+                    )
+                )
 
     # Handle trailing silence
     if in_silence:
@@ -132,11 +136,13 @@ def detect_pauses(audio_path: str) -> tuple[list[PauseInfo], int]:
         end_sec = len(is_silent) / frames_per_second
         duration = end_sec - start_sec
         if duration >= PAUSE_THRESHOLD_SEC:
-            pauses.append(PauseInfo(
-                start=round(start_sec, 2),
-                end=round(end_sec, 2),
-                duration=round(duration, 2),
-            ))
+            pauses.append(
+                PauseInfo(
+                    start=round(start_sec, 2),
+                    end=round(end_sec, 2),
+                    duration=round(duration, 2),
+                )
+            )
 
     return pauses, len(pauses)
 

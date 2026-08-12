@@ -5,12 +5,14 @@ we fall back to an LLM-based scorer that asks Sarvam to rate the transcript.
 """
 
 from __future__ import annotations
+
+import concurrent.futures
 import logging
 import re
 import threading
-import concurrent.futures
-from schema import GrammarIssue
+
 from prompts import GRAMMAR_SCORE, RELEVANCY_SCORE
+from schema import GrammarIssue
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +34,11 @@ def _get_tool():
         if _tool is None and not _tool_unavailable:
             try:
                 import language_tool_python
+
                 _tool = language_tool_python.LanguageTool("en-US")
                 logger.info("LanguageTool initialised.")
             except Exception as e:
-                logger.warning(
-                    "LanguageTool unavailable (%s) — using LLM-based grammar scorer.", e
-                )
+                logger.warning("LanguageTool unavailable (%s) — using LLM-based grammar scorer.", e)
                 _tool_unavailable = True
     return _tool
 
@@ -62,13 +63,15 @@ def check_grammar(text: str) -> list[GrammarIssue]:
     issues: list[GrammarIssue] = []
     for m in matches:
         suggestion = m.replacements[0] if m.replacements else None
-        issues.append(GrammarIssue(
-            message=m.message,
-            category=m.category,
-            offset=m.offset,
-            length=m.errorLength,
-            suggestion=suggestion,
-        ))
+        issues.append(
+            GrammarIssue(
+                message=m.message,
+                category=m.category,
+                offset=m.offset,
+                length=m.errorLength,
+                suggestion=suggestion,
+            )
+        )
     return issues
 
 
@@ -94,6 +97,7 @@ def grammar_score(issue_count: int, word_count: int) -> float:
 
 # ─── LLM-based grammar + pronunciation scorer ───────────
 
+
 def score_grammar_llm(transcript: str) -> dict:
     """
     Use the Sarvam LLM to score grammar and pronunciation from the transcript text.
@@ -107,25 +111,29 @@ def score_grammar_llm(transcript: str) -> dict:
     # Scale fallback score by word count: fewer words → lower fallback.
     # A 3-word "answer" should not receive a 75 grammar score by default.
     fallback_grammar = min(75, max(10, words * 5))
-    FALLBACK = {"grammar": fallback_grammar, "pronunciation": fallback_grammar, "grammar_issues": []}
+    FALLBACK = {
+        "grammar": fallback_grammar,
+        "pronunciation": fallback_grammar,
+        "grammar_issues": [],
+    }
 
     if not transcript or len(transcript.strip()) < 5:
         return FALLBACK
 
     try:
         from config import SARVAM_API_KEY, SARVAM_MODEL
+
         if not SARVAM_API_KEY:
             return FALLBACK
 
         from sarvamai import SarvamAI
+
         client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
 
         # Truncate very long transcripts to stay within token limits
         truncated = transcript[:1500]
 
-        messages = [
-            {"role": "user", "content": GRAMMAR_SCORE.render(transcript=truncated)}
-        ]
+        messages = [{"role": "user", "content": GRAMMAR_SCORE.render(transcript=truncated)}]
 
         # Apply a 25-second timeout so the call can never hang indefinitely.
         def _call():
@@ -146,20 +154,25 @@ def score_grammar_llm(transcript: str) -> dict:
         raw = response.choices[0].message.content or ""
 
         # Extract JSON from the response (handle nested objects via greedy match)
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             logger.warning("LLM grammar scorer returned unexpected format: %s", raw[:200])
             return FALLBACK
 
         import json
+
         data = json.loads(m.group(0))
         grammar_val = max(0, min(100, int(data.get("grammar", 75))))
         pronun_val = max(0, min(100, int(data.get("pronunciation", 75))))
         issues_raw = data.get("grammar_issues", [])
         issues = [str(i) for i in issues_raw if i][:5]
 
-        logger.info("LLM grammar score: grammar=%d, pronunciation=%d, issues=%d",
-                    grammar_val, pronun_val, len(issues))
+        logger.info(
+            "LLM grammar score: grammar=%d, pronunciation=%d, issues=%d",
+            grammar_val,
+            pronun_val,
+            len(issues),
+        )
         return {"grammar": grammar_val, "pronunciation": pronun_val, "grammar_issues": issues}
 
     except Exception as e:
@@ -168,6 +181,7 @@ def score_grammar_llm(transcript: str) -> dict:
 
 
 # ─── LLM-based answer relevancy scorer ─────────────────
+
 
 def score_relevancy_llm(transcript: str, question: str) -> dict:
     """
@@ -187,10 +201,12 @@ def score_relevancy_llm(transcript: str, question: str) -> dict:
 
     try:
         from config import SARVAM_API_KEY, SARVAM_MODEL
+
         if not SARVAM_API_KEY:
             return FALLBACK
 
         from sarvamai import SarvamAI
+
         client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
 
         # Truncate to stay within token limits
@@ -223,12 +239,13 @@ def score_relevancy_llm(transcript: str, question: str) -> dict:
                 return FALLBACK
 
         raw = response.choices[0].message.content or ""
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             logger.warning("LLM relevancy scorer returned unexpected format: %s", raw[:200])
             return FALLBACK
 
         import json
+
         data = json.loads(m.group(0))
         relevancy_val = max(0, min(100, int(data.get("relevancy", 75))))
         logger.info("LLM relevancy score: %d", relevancy_val)

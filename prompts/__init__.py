@@ -26,7 +26,9 @@ relevancy_score.j2   — user prompt for the LLM answer relevancy scorer
 """
 
 from __future__ import annotations
+
 from pathlib import Path
+
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 # ── Jinja2 environment ─────────────────────────────────────────────────────
@@ -36,7 +38,7 @@ _ENV = Environment(
     loader=FileSystemLoader(str(Path(__file__).parent)),
     undefined=StrictUndefined,
     keep_trailing_newline=True,
-    autoescape=False,   # prompts are plain text, not HTML
+    autoescape=False,  # prompts are plain text, not HTML  # noqa: S701
 )
 
 
@@ -63,9 +65,9 @@ def render(template_name: str, **variables: object) -> str:
 # ── Convenience: pre-loaded template objects ───────────────────────────────
 # These are available for callers that want to cache the compiled template
 # object rather than re-parsing the file on every call.
-FEEDBACK_SYSTEM   = _ENV.get_template("feedback_system.j2")
-FEEDBACK_USER     = _ENV.get_template("feedback_user.j2")
-QUESTION_SYSTEM   = _ENV.get_template("question_system.j2")
-QUESTION_USER     = _ENV.get_template("question_user.j2")
-GRAMMAR_SCORE     = _ENV.get_template("grammar_score.j2")
-RELEVANCY_SCORE   = _ENV.get_template("relevancy_score.j2")
+FEEDBACK_SYSTEM = _ENV.get_template("feedback_system.j2")
+FEEDBACK_USER = _ENV.get_template("feedback_user.j2")
+QUESTION_SYSTEM = _ENV.get_template("question_system.j2")
+QUESTION_USER = _ENV.get_template("question_user.j2")
+GRAMMAR_SCORE = _ENV.get_template("grammar_score.j2")
+RELEVANCY_SCORE = _ENV.get_template("relevancy_score.j2")
