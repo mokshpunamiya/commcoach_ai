@@ -1,0 +1,62 @@
+{
+  "_comment": "Single source of truth for per-language filler words and display metadata.",
+  "_schema": {
+    "code": "BCP-47 language tag sent to Sarvam STT",
+    "label": "Human-readable display name shown in the UI",
+    "fillers": "List of filler words/phrases to detect in transcripts for this language"
+  },
+  "languages": [
+    {
+      "code": "en-IN",
+      "label": "English",
+      "fillers": [
+        "um", "uh", "umm", "uhh", "uhm", "hmm", "mmm",
+        "like", "basically", "actually", "literally", "honestly",
+        "you know", "i mean", "sort of", "kind of", "right",
+        "so yeah", "anyway", "anyways"
+      ]
+    },
+    {
+      "code": "hi-IN",
+      "label": "Hindi",
+      "fillers": [
+        "matlab", "matlab ki", "woh", "bas", "aur", "toh", "haan",
+        "acha", "yaar", "bhai", "thoda", "waise", "basically",
+        "actually", "to", "matlab bolo", "kya"
+      ]
+    },
+    {
+      "code": "kn-IN",
+      "label": "Kannada",
+      "fillers": [
+        "antha", "anthu", "enu", "yeno", "matte", "andre",
+        "basically", "actually", "adhu", "idu", "neenu", "namdu"
+      ]
+    },
+    {
+      "code": "ta-IN",
+      "label": "Tamil",
+      "fillers": [
+        "enna", "sollu", "apdi", "indha", "athu", "basically",
+        "actually", "paarunga", "theriyuma", "seri", "da", "ma"
+      ]
+    },
+    {
+      "code": "te-IN",
+      "label": "Telugu",
+      "fillers": [
+        "ante", "adi", "emi", "basically", "actually", "ala",
+        "mari", "kada", "ledha", "oka", "avunu", "sare"
+      ]
+    },
+    {
+      "code": "unknown",
+      "label": "Hinglish",
+      "fillers": [
+        "um", "uh", "matlab", "basically", "actually", "like",
+        "you know", "woh", "bas", "toh", "yaar", "acha",
+        "i mean", "sort of", "kind of", "right", "haan"
+      ]
+    }
+  ]
+}
