@@ -6,12 +6,37 @@ Question:
 Candidate's answer transcript:
 """{{ transcript }}"""
 
+## CRITICAL: Weak Answer Detection
+
+First, check if the answer is a non-answer or weak response. If ANY of the following apply, you MUST assign a score of 0-20 maximum:
+
+- The answer is empty or blank
+- The answer contains fewer than 5 meaningful words (excluding filler words like "um", "uh", "like", "so", "well")
+- The answer is a refusal or admission of ignorance:
+  Examples: "I don't know", "No idea", "Not sure", "I have no experience", "I don't have any experience",
+            "I don't actually know", "I'm not sure", "I have no clue", "I cannot answer", "No",
+            "I just wanted a job so I applied", "I applied because I needed a job", "I don't know this"
+- The answer does not address the question in any meaningful way
+- The answer is a single word or a very short phrase that provides no substantive information
+
+For weak answers: assign 0-15. For near-empty answers: assign 0-5.
+
+## Standard Scoring (for substantive answers)
+
 Rate the answer's **relevancy** (0-100):
-- 90-100: Answer directly and completely addresses the question
-- 70-89: Mostly on-topic with minor tangents
-- 50-69: Partially relevant; key parts of the question are missed
-- 30-49: Mostly off-topic or very superficial
-- 0-29: Answer does not address the question at all
+- 90-100: Answer directly and completely addresses the question with specific examples and detail
+- 70-89: Mostly on-topic with minor tangents, demonstrates relevant knowledge
+- 50-69: Partially relevant; key parts of the question are missed but some relevant content exists
+- 30-49: Mostly off-topic or very superficial, minimal relevant content
+- 0-29: Answer does not address the question at all, is a non-answer, or shows complete lack of knowledge
+
+## Scoring Rules
+
+1. "I don't know" type answers → score 0-10
+2. Answers under 5 meaningful words → score 0-20 maximum
+3. Answers that mention applying "just for a job" or lack genuine motivation → score 0-15
+4. Answers that avoid the question entirely → score 0-25
+5. Only award 50+ if the answer genuinely contains relevant information about the question
 
 Respond with ONLY a JSON object, no explanation:
-{"relevancy": <integer 0-100>, "reason": "<one sentence>"}
+{"relevancy": <integer 0-100>, "reason": "<one sentence explaining the score>"}

@@ -645,6 +645,114 @@ function FeedbackPage({session,onStartInterview,onViewDashboard,onRetry}){
 }
 
 /* ── helpers for enhanced evaluation output ── */
+
+const _buildReasoning = (q, answer, score, report, isWeak) => {
+  const pts = [];
+  const r = report || {};
+  const rel = r.answer_relevancy_score || 0;
+  if (isWeak || !answer || answer.trim().length < 10) {
+    pts.push("The answer is empty, extremely short, or does not address the question at all.");
+    pts.push("Non-answers and refusals automatically receive a score of 0-20.");
+    return pts;
+  }
+  if (rel > 0 && rel < 25) {
+    pts.push(`Answer relevancy score is very low (${Math.round(rel)}/100). The response does not engage with the question meaningfully.`);
+  } else if (rel >= 25 && rel < 50) {
+    pts.push(`Answer relevancy is low (${Math.round(rel)}/100). Key aspects of the question were not addressed.`);
+  } else if (rel >= 50 && rel < 70) {
+    pts.push(`Answer relevancy is moderate (${Math.round(rel)}/100). Some relevant content exists but important details are missing.`);
+  } else if (rel >= 70) {
+    pts.push(`Answer relevancy is good (${Math.round(rel)}/100). The response addresses the question with relevant content.`);
+  }
+  if (r.grammar_score != null) {
+    if (r.grammar_score < 55) pts.push(`Grammar score is weak (${Math.round(r.grammar_score)}/100) — frequent errors in sentence structure and word choice.`);
+    else if (r.grammar_score < 75) pts.push(`Grammar score is fair (${Math.round(r.grammar_score)}/100) — some grammatical errors affect overall clarity.`);
+    else pts.push(`Grammar is solid (${Math.round(r.grammar_score)}/100) — minimal structural errors.`);
+  }
+  if ((r.filler_word_count || 0) > 3) {
+    pts.push(`${r.filler_word_count} filler words detected — excessive fillers reduce perceived confidence and professionalism.`);
+  }
+  if (r.fluency_score != null && r.fluency_score > 0 && r.fluency_score < 60) {
+    pts.push(`Fluency score is low (${Math.round(r.fluency_score)}/100) — delivery was inconsistent or broken.`);
+  }
+  if (pts.length === 0) {
+    pts.push(`Overall score of ${score}/100 reflects the combined relevancy, grammar, and delivery quality.`);
+  }
+  return pts.slice(0, 4);
+};
+
+const _buildKnowledgeGaps = (q, answer, score, report) => {
+  const gaps = [];
+  const query = (q || "").toLowerCase();
+  const r = report || {};
+  const isWeak = !answer || answer.trim().length < 10;
+  if (isWeak) {
+    gaps.push("No substantive knowledge demonstrated — the answer did not engage with the question.");
+    return gaps;
+  }
+  if (query.includes("yourself") || query.includes("introduce")) {
+    if (score < 70) {
+      gaps.push("Professional background and current role description");
+      gaps.push("Key achievements and quantifiable results");
+      gaps.push("Career narrative connecting past experience to this role");
+    }
+  } else if (query.includes("technical project") || query.includes("worked with") || query.includes("project you're most proud")) {
+    if (score < 70) {
+      gaps.push("STAR method structure (Situation, Task, Action, Result)");
+      gaps.push("Specific technical tools, libraries, or architectural decisions used");
+      gaps.push("Measurable business or technical impact (e.g., latency reduced by X%, cost saved by Y%)");
+    }
+  } else if (query.includes("disagreed") || query.includes("teammate")) {
+    if (score < 70) {
+      gaps.push("Active listening and empathy — acknowledging the other party's valid perspective");
+      gaps.push("Data-driven conflict resolution approach");
+      gaps.push("Positive outcome demonstrating professional maturity");
+    }
+  } else if (query.includes("prioritize") || query.includes("urgent") || query.includes("pressure")) {
+    if (score < 70) {
+      gaps.push("A formalized prioritization framework (Eisenhower Matrix, MoSCoW, or Agile backlog)");
+      gaps.push("Proactive stakeholder communication when timelines shift");
+      gaps.push("Specific examples of managing competing priorities successfully");
+    }
+  } else if (query.includes("why do you want")) {
+    if (score < 70) {
+      gaps.push("Specific knowledge of the company's mission, products, or technology stack");
+      gaps.push("Clear articulation of what unique value you bring to the team");
+    }
+  } else if (score < 50) {
+    gaps.push("Substantive, on-topic response addressing the core question");
+    gaps.push("At least one concrete example from real professional experience");
+    gaps.push("Logical structure with a clear beginning, middle, and conclusion");
+  }
+  if ((r.answer_relevancy_score || 0) < 40 && !isWeak) {
+    gaps.push("Understanding of what the interviewer is actually asking — re-read the question before answering");
+  }
+  return gaps;
+};
+
+const _buildSampleAnswer = (q) => {
+  const query = (q || "").toLowerCase();
+  if (query.includes("yourself") || query.includes("introduce")) {
+    return "I'm a software engineer with four years of experience building scalable backend systems. In my most recent role at TechCorp, I led the migration of our monolithic payment service to a microservices architecture, which reduced our deployment time by 60% and improved system uptime to 99.97%. Before that, I worked at a fintech startup where I built real-time fraud detection models using Python and Kafka. I'm excited about this role because your team is working on distributed data systems — that's exactly the space where I want to deepen my expertise over the next few years.";
+  }
+  if (query.includes("technical project") || query.includes("worked with") || query.includes("project you're most proud")) {
+    return "One project I'm most proud of was redesigning our authentication service. The situation was that our legacy auth system was causing 200ms latency spikes during peak traffic. My task was to architect and deliver a zero-downtime replacement. My action was to introduce Redis-backed JWT sessions with a staged canary rollout — I wrote the migration script, led four engineers through a two-week sprint, and instrumented every step in Datadog. The result was a 74% reduction in p99 latency and a 40% drop in infrastructure cost. The project shipped two weeks ahead of schedule.";
+  }
+  if (query.includes("disagreed") || query.includes("teammate")) {
+    return "During a product roadmap meeting, our lead engineer wanted to build a custom caching layer while I believed Redis would be faster to deliver and lower-risk. Rather than dismissing his idea, I asked him to walk me through his concerns about Redis — mainly around operational overhead. I acknowledged that was valid, then put together a two-page comparison doc with benchmarks, maintenance cost, and hiring implications. We agreed to run a week-long spike with Redis in staging. The results were clear — Redis handled our load with half the code, and the team aligned on that approach. The feature shipped on time and has been stable for 18 months.";
+  }
+  if (query.includes("prioritize") || query.includes("urgent") || query.includes("pressure")) {
+    return "I use a two-step approach: first I map every task on an impact-vs-effort grid, then I hold a 10-minute sync with stakeholders to validate my read of business priority. Last quarter, when we had three concurrent P1 incidents alongside a board demo deadline, I triaged the incidents to the on-call team, delegated two lower-impact tasks, and personally focused on the demo-critical feature. I communicated timeline risks proactively to the PM by end of day Monday — giving her time to adjust the scope. Everything shipped. I find that transparency with stakeholders turns urgency from a panic into a team problem we can solve together.";
+  }
+  if (query.includes("why do you want")) {
+    return "I've been following your engineering blog for over a year — specifically your posts on distributed tracing and chaos engineering. My last three years have been spent solving exactly these problems at scale, and I want to work somewhere that treats observability as a first-class concern rather than an afterthought. Beyond the technical fit, your culture of blameless post-mortems aligns with how I believe high-performing teams grow. I believe I can contribute to your platform reliability goals within the first quarter, and I'm genuinely excited about the problem space you're working on.";
+  }
+  if (query.includes("strengths")) {
+    return "My strongest area is debugging complex distributed systems under pressure — I've been the person people call when nothing else is working. Last year I diagnosed a memory leak in production that had evaded three other engineers for two weeks. I isolated it to a subtle goroutine leak in our gRPC middleware within four hours using pprof. On the growth side, I'm working on delegating earlier rather than jumping in myself — I've started doing structured code walkthroughs with junior engineers rather than just fixing issues, which has improved both team capability and my own bandwidth.";
+  }
+  return "I faced a situation where [specific context]. My task was to [clear responsibility]. I took the following actions: first [concrete step with tool/method], then [second concrete step], and finally [third step]. The result was [quantified business or technical outcome — e.g., 30% improvement, shipped on time, zero incidents post-deployment]. This experience taught me [specific lesson that makes me stronger as a professional].";
+};
+
 const getExpectedAnswer = (q) => {
   const query = q.toLowerCase();
   if (query.includes("dependency injection")) {
@@ -805,6 +913,9 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   /* ── Interview-start loading guard ── */
   const [starting,setStarting]=useState(false);
   const startingRef=useRef(false);
+  const [confirmRestart,setConfirmRestart]=useState(false);
+  /* evaluationFrozen: once results are shown, never re-run evaluateAll unless explicit restart */
+  const evaluationFrozenRef=useRef(false);
 
   /* Sync states to localStorage */
   useEffect(() => {
@@ -876,6 +987,36 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   // Sync interviewType from parent's defaultType when setup phase opens fresh
   useEffect(()=>{if(phase==="setup"&&defaultType&&!rawLog.length)setInterviewType(defaultType);},[defaultType]);
 
+  /* ── Weak-answer helpers (must be defined before evaluateAll) ── */
+  const _WEAK_PATTERNS_I=/^(i\s+don'?t\s+know|i\s+do\s+not\s+know|no\s+idea|not\s+sure|i'?m\s+not\s+sure|i\s+have\s+no\s+(experience|idea|clue|knowledge)|i\s+don'?t\s+have\s+any\s+(experience|idea|knowledge)|i\s+don'?t\s+actually|i\s+cannot\s+answer|i\s+can'?t\s+answer|^no$|nope|none|i\s+just\s+wanted\s+a\s+job|i\s+applied\s+(because|since|as)\s+i\s+(needed|wanted|just)|i\s+don'?t\s+know\s+this|i\s+have\s+no\s+answer|i\s+pass)\b/i;
+  const _FILLER_SET_I=new Set(["um","uh","uhh","umm","hmm","like","so","well","you","know","i","mean","basically","actually","literally","right","yeah","okay","ok","a","an","the","and","or","but","is","it"]);
+  const _isWeakAnswer=(text)=>{
+    const t=(text||"").trim();
+    if(!t)return true;
+    if(_WEAK_PATTERNS_I.test(t))return true;
+    const words=t.toLowerCase().match(/[a-z']+/g)||[];
+    const meaningful=words.filter(w=>!_FILLER_SET_I.has(w)&&w.length>1);
+    return meaningful.length<5;
+  };
+  const _heuristicScore=(text,lang)=>{
+    if(_isWeakAnswer(text))return Math.max(0,Math.min(15,Math.round((text||"").trim().length/3)));
+    const words=(text||"").trim().split(/\s+/).filter(Boolean);
+    let base=Math.min(60,20+words.length*1.5);
+    const fillerSet=getFillers(lang||null);
+    const fillerRx=new RegExp("\\b("+[...fillerSet].map(f=>f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|")+")\\b","gi");
+    const fillerCount=((text||"").match(fillerRx)||[]).length;
+    base-=(words.length>0?fillerCount/words.length:0)*40;
+    if(/\b(result|outcome|achieved|saved|improved|reduced|increased|led|managed)\b/i.test(text||""))base+=8;
+    return Math.max(21,Math.min(85,Math.round(base)));
+  };
+  const _scoreFromReport=(report,text)=>{
+    const g=report.grammar_score||0,f=report.filler_score||0,p=report.pace_score||0,fl=report.fluency_score||0,r=report.answer_relevancy_score||0;
+    if(g+f+p+fl+r===0)return _heuristicScore(text||"");
+    let score=Math.round(r*0.40+fl*0.25+g*0.20+f*0.10+p*0.05);
+    if(_isWeakAnswer(text||"")||r<=20)score=Math.min(score,20);
+    return score;
+  };
+
   const start=async()=>{
     if(startingRef.current)return;
     startingRef.current=true;setStarting(true);setSetupErr(null);
@@ -907,6 +1048,8 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   };
 
   const evaluateAll=async(entries)=>{
+    /* Guard: never re-evaluate if already frozen (page refresh / tab switch protection) */
+    if(evaluationFrozenRef.current)return;
     const results=[];
     for(let i=0;i<entries.length;i++){
       const {question,answer:ans,audioBlob}=entries[i];
@@ -939,11 +1082,14 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
         const feedbackFull=data.feedback||{};
         coachingPlan=feedbackFull.coachingPlan||null;
         const os=report.overall_score;
-        score=(os!=null&&os>0)?Math.round(os):_scoreFromReport(report,ans);
+        /* Always apply weak-answer cap even to server score */
+        let rawScore=(os!=null&&os>0)?Math.round(os):_scoreFromReport(report,ans);
+        const rel=report.answer_relevancy_score||0;
+        if(_isWeakAnswer(ans)||rel<=20)rawScore=Math.min(rawScore,20);
+        score=rawScore;
         const raw=data.feedback_raw||feedbackFull;
         const m=typeof raw==="string"?raw.match(/[-•*]\s+(.+)/):null;
         const lines=m?[m[1].replace(/\*\*/g,"").trim()]:[];
-        const rel=report.answer_relevancy_score||0;
         if(rel>0&&rel<50)lines.push(`Answer relevancy low (${Math.round(rel)}/100) — address the question more directly.`);
         else if(rel>=50&&rel<70)lines.push(`Answer partially relevant (${Math.round(rel)}/100) — stay more focused on what was asked.`);
         if((report.filler_word_count||0)>3)lines.push(`Watch filler words (${report.filler_word_count} detected).`);
@@ -957,27 +1103,13 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
       setEvalProgress(Math.round(((i+1)/entries.length)*100));
       await new Promise(r=>setTimeout(r,0));
     }
+    /* Freeze results — prevent re-evaluation on refresh or tab switch */
+    evaluationFrozenRef.current=true;
     setScoredLog(results);setPhase("results");
   };
 
-  const _scoreFromReport=(report,text)=>{
-    const g=report.grammar_score||0,f=report.filler_score||0,p=report.pace_score||0,fl=report.fluency_score||0,r=report.answer_relevancy_score||0;
-    if(g+f+p+fl+r===0)return _heuristicScore(text||"");
-    return Math.round(r*0.35+fl*0.20+g*0.15+f*0.15+p*0.05);
-  };
-  const _heuristicScore=(text,lang)=>{
-    const words=text.trim().split(/\s+/).filter(Boolean);
-    let base=Math.min(60,20+words.length*1.5);
-    // Build filler regex from the live registry (language-aware)
-    const fillerSet=getFillers(lang||null);
-    const fillerRx=new RegExp("\\b("+[...fillerSet].map(f=>f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|")+")\\b","gi");
-    const fillerCount=(text.match(fillerRx)||[]).length;
-    base-=(words.length>0?fillerCount/words.length:0)*40;
-    if(/\b(result|outcome|achieved|saved|improved|reduced|increased|led|managed)\b/i.test(text))base+=8;
-    return Math.max(20,Math.min(85,Math.round(base)));
-  };
-
-  const handleRestart=()=>{
+  const _doRestart=()=>{
+    evaluationFrozenRef.current=false;
     setRawLog([]);
     setScoredLog([]);
     setIdx(0);
@@ -986,7 +1118,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     setSessionId(null);
     setDbSessionId(null);
     setQuestions([]);
-    
+    setConfirmRestart(false);
     localStorage.removeItem("cc_mip_phase");
     localStorage.removeItem("cc_mip_questions");
     localStorage.removeItem("cc_mip_idx");
@@ -994,7 +1126,6 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     localStorage.removeItem("cc_mip_scoredLog");
     localStorage.removeItem("cc_mip_sessionId");
     localStorage.removeItem("cc_mip_dbSessionId");
-    
     const skills = resume?.skills || [];
     const primarySkill = skills[0] || "software engineering";
     const customQuestions = [
@@ -1008,6 +1139,11 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     }
     setQuestions(customQuestions);
     setPhase("setup");
+  };
+
+  const handleRestart=()=>{
+    /* Show confirmation modal — actual reset only happens on confirm */
+    setConfirmRestart(true);
   };
 
   const finishInterview=()=>{
@@ -1170,7 +1306,20 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     {label:"Week 3 — Consolidation",focus:"Full interview simulation",tasks:[{title:"Full mock interview",desc:"Complete another CommCoach mock interview and compare scores to today's baseline."},allDrills[2]||{title:"Pace control",desc:"Re-record your fastest answer at a deliberate 130 WPM. Pause at every comma."},{title:"Confidence build",desc:"Answer 2 questions in front of a mirror or camera. Hold eye contact with your reflection."}]},
   ];
 
+  /* ── Restart confirmation modal ── */
+  const restartModal = confirmRestart && e("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:28,maxWidth:420,width:"100%",textAlign:"center"}},
+      e("div",{style:{fontFamily:FD,fontWeight:700,fontSize:18,color:C.text,marginBottom:10}},"Restart Interview?"),
+      e("div",{style:{fontFamily:FB,fontSize:13.5,color:C.muted,marginBottom:24,lineHeight:1.6}},"Are you sure you want to restart? Existing interview results will be permanently lost."),
+      e("div",{style:{display:"flex",gap:12,justifyContent:"center"}},
+        e("button",{onClick:()=>setConfirmRestart(false),style:{...sBtn,fontSize:13,padding:"10px 22px"}},"Cancel"),
+        e("button",{onClick:_doRestart,style:{...pBtn,fontSize:13,padding:"10px 22px",background:C.coral}},"Yes, restart")
+      )
+    )
+  );
+
   return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:760,margin:"0 auto",padding:"0 20px 60px"}},
+    restartModal,
     e(STitle,{text:"Interview report",Icon:SvgCheck}),
     /* Overall score */
     e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:22,display:"flex",alignItems:"center",gap:20,marginBottom:20,flexWrap:"wrap"}},
@@ -1187,62 +1336,101 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
         aggFillers!==null&&e("div",{style:{textAlign:"center",background:C.bg2,borderRadius:12,padding:"10px 16px",minWidth:70}},e("div",{style:{fontFamily:FM,fontWeight:700,fontSize:18,color:aggFillers===0?C.mint:aggFillers<5?C.yellow:C.coral}},aggFillers),e("div",{style:{fontFamily:FB,fontSize:11,color:C.muted,marginTop:2}},"Fillers"))
       )
     ),
+    /* Score formula breakdown */
+    e("div",{style:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 16px",marginBottom:20,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}},
+      e("span",{style:{fontFamily:FM,fontSize:10.5,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginRight:4}},"Score formula:"),
+      [{label:"Relevance",pct:"40%",color:C.coral},{label:"Completeness",pct:"25%",color:C.purple},{label:"Accuracy",pct:"20%",color:C.yellow},{label:"Communication",pct:"10%",color:C.mint},{label:"Grammar",pct:"5%",color:C.fillerTone}].map(({label,pct,color})=>
+        e("span",{key:label,style:{fontFamily:FB,fontSize:12,color:C.muted}},e("span",{style:{color,fontWeight:700}},pct)," ",label)
+      )
+    ),
     /* Per-question breakdown */
     e(STitle,{text:"Question-by-question breakdown",Icon:SvgMsg}),
     e("div",{style:{display:"flex",flexDirection:"column",gap:14,marginBottom:28}},
       scoredLog.map((entry,i)=>{
         const r=entry.report||{};
-        const status = entry.score >= 75 ? "Correct" : entry.score >= 50 ? "Partially Correct" : "Incorrect";
-        const statusColor = entry.score >= 75 ? C.mint : entry.score >= 50 ? C.yellow : C.coral;
-        const statusBg = entry.score >= 75 ? C.mintSoft : entry.score >= 50 ? C.yellow + "11" : C.coralSoft;
-        
+        const rel=r.answer_relevancy_score||0;
+        const isWeak=_isWeakAnswer(entry.answer);
+        /* Status rules: weak answers or score≤20 → always Incorrect */
+        const status = (isWeak||entry.score<=20||rel<=20) ? "Incorrect"
+          : entry.score >= 75 ? "Correct"
+          : entry.score >= 45 ? "Partially Correct"
+          : "Incorrect";
+        const statusColor = status==="Correct" ? C.mint : status==="Partially Correct" ? C.yellow : C.coral;
+        const statusBg = status==="Correct" ? C.mintSoft : status==="Partially Correct" ? C.yellow+"11" : C.coralSoft;
+
+        /* Reasoning: why this score was given */
+        const reasoning = _buildReasoning(entry.question, entry.answer, entry.score, r, isWeak);
+        /* Knowledge gaps */
+        const knowledgeGaps = _buildKnowledgeGaps(entry.question, entry.answer, entry.score, r);
         const whyWeakPoints = getWhyWeak(entry.question, entry.score, r);
         const expectedAnswer = getExpectedAnswer(entry.question);
+        const sampleAnswer = _buildSampleAnswer(entry.question);
         const suggList = getSuggestions(entry.question);
 
         return e("div",{key:i,style:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}},
+          /* Q header + score */
           e("div",{style:{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}},
             e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted,flexShrink:0,marginTop:3}},`Q${i+1}`),
             e("div",{style:{fontFamily:FD,fontWeight:600,fontSize:14,color:C.text,flex:1,lineHeight:1.4}},entry.question),
             e("span",{style:{fontFamily:FM,fontWeight:700,fontSize:17,color:colorForScore(entry.score),flexShrink:0}},`${entry.score}/100`)
           ),
           e("div",{style:{height:5,borderRadius:3,background:C.card,overflow:"hidden",marginBottom:16}},e("div",{style:{width:`${entry.score}%`,height:"100%",background:colorForScore(entry.score),borderRadius:3,transition:"width .4s ease"}})),
-          
-          /* Candidate Answer Section */
+
+          /* Candidate Answer */
           e("div",{style:{marginBottom:14}},
-            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},"Your Answer"),
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},"Candidate Answer"),
             e("div",{style:{padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontFamily:FB,fontSize:13,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}},entry.answer)
           ),
 
-          /* Result/Status Badge */
+          /* Result badge */
           e("div",{style:{marginBottom:14,display:"flex",alignItems:"center",gap:8}},
             e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}},"Result:"),
             e("span",{style:{fontFamily:FM,fontWeight:700,fontSize:12,color:statusColor,background:statusBg,padding:"3px 10px",borderRadius:999,border:`1px solid ${statusColor}44`}},status)
           ),
 
-          /* Why Answer is Weak */
+          /* Reasoning */
           e("div",{style:{marginBottom:14}},
-            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},status === "Correct" ? "Areas for Improvement" : "Why This Answer Is Weak"),
-            e("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-              whyWeakPoints.map((pt, pidx)=>e("div",{key:pt,style:{display:"flex",gap:8,alignItems:"flex-start"}},
-                e(SvgCheck,{size:12,color:statusColor}),
-                e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.text,lineHeight:1.4}},pt)
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},"Reasoning"),
+            e("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+              reasoning.map((pt,pi)=>e("div",{key:pi,style:{display:"flex",gap:8,alignItems:"flex-start"}},
+                e("span",{style:{color:statusColor,flexShrink:0,fontWeight:700,fontSize:13,lineHeight:1.2}},pi+1+"."),
+                e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.text,lineHeight:1.45}},pt)
               ))
             )
           ),
 
-          /* Expected Answer Section */
+          /* Knowledge Gaps */
+          knowledgeGaps.length>0&&e("div",{style:{marginBottom:14}},
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},"Knowledge Gaps"),
+            e("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+              knowledgeGaps.map((gap,gi)=>e("div",{key:gi,style:{display:"flex",gap:8,alignItems:"flex-start",padding:"7px 10px",background:C.coralSoft,borderRadius:8,border:`1px solid ${C.coral}33`}},
+                e("span",{style:{color:C.coral,flexShrink:0,fontWeight:700,fontSize:14,lineHeight:1}},"\u26A0"),
+                e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.text,lineHeight:1.45}},gap)
+              ))
+            )
+          ),
+
+          /* Expected Answer */
           e("div",{style:{marginBottom:14}},
             e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},"Expected Answer"),
             e("div",{style:{padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontFamily:FB,fontSize:13,color:C.muted,fontStyle:"italic",lineHeight:1.6}},expectedAnswer)
           ),
 
-          /* Suggestions Section */
+          /* Sample High-Scoring Answer (90+) */
+          e("div",{style:{marginBottom:14}},
+            e("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:4}},
+              e("div",{style:{fontFamily:FM,fontSize:11,color:C.mint,textTransform:"uppercase",letterSpacing:0.5}},"Sample High-Scoring Answer"),
+              e("span",{style:{fontFamily:FM,fontSize:10,color:C.mint,background:C.mintSoft,padding:"2px 7px",borderRadius:999,border:`1px solid ${C.mint}44`}},"90+ score")
+            ),
+            e("div",{style:{padding:"10px 12px",background:C.mintSoft,border:`1px solid ${C.mint}44`,borderRadius:8,fontFamily:FB,fontSize:13,color:C.text,lineHeight:1.65}},sampleAnswer)
+          ),
+
+          /* Improvement Tips */
           e("div",null,
-            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},"Suggestions"),
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},"Improvement Tips"),
             e("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-              suggList.map((sugg, sidx)=>e("div",{key:sugg,style:{display:"flex",gap:8,alignItems:"flex-start"}},
-                e("span",{style:{color:C.purple,fontWeight:700,fontSize:14,lineHeight:1,marginTop:-2}},"•"),
+              suggList.map((sugg,si)=>e("div",{key:si,style:{display:"flex",gap:8,alignItems:"flex-start"}},
+                e("span",{style:{color:C.purple,fontWeight:700,fontSize:14,lineHeight:1,marginTop:-1}},"\u2022"),
                 e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.4}},sugg)
               ))
             )

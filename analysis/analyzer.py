@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from analysis.emotion import approximate_confidence, detect_emotion, emotion_to_confidence
@@ -25,6 +26,78 @@ from analysis.transcriber import transcribe
 from schema import SessionReport
 
 logger = logging.getLogger(__name__)
+
+# ─── Weak-answer detection ────────────────────────────────────────────────────
+# Patterns that indicate a non-answer or refusal to answer.
+_WEAK_ANSWER_PATTERNS = re.compile(
+    r"""^(
+        i\s+don'?t\s+know |
+        i\s+do\s+not\s+know |
+        no\s+idea |
+        not\s+sure |
+        i'?m\s+not\s+sure |
+        i\s+have\s+no\s+(experience|idea|clue|knowledge) |
+        i\s+don'?t\s+have\s+any\s+(experience|idea|knowledge) |
+        i\s+don'?t\s+actually |
+        i\s+cannot\s+answer |
+        i\s+can'?t\s+answer |
+        no |
+        nope |
+        none |
+        i\s+just\s+wanted\s+a\s+job |
+        i\s+applied\s+(because|since|as)\s+i\s+(needed|wanted|just) |
+        i\s+don'?t\s+know\s+this |
+        i\s+have\s+no\s+answer |
+        i\s+pass
+    )\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Words that are not "meaningful" for the 5-word threshold check
+_FILLER_WORDS = {
+    "um", "uh", "uhh", "umm", "hmm", "like", "so", "well", "you", "know",
+    "i", "mean", "basically", "actually", "literally", "right", "yeah",
+    "okay", "ok", "a", "an", "the", "and", "or", "but", "is", "it",
+}
+
+
+def _is_weak_answer(transcript: str) -> tuple[bool, str]:
+    """
+    Detect if an answer is a non-answer, refusal, or too short to be meaningful.
+
+    Returns (is_weak, reason).
+    """
+    text = transcript.strip() if transcript else ""
+
+    # Empty or blank answer
+    if not text:
+        return True, "empty answer"
+
+    # Check against known weak patterns
+    if _WEAK_ANSWER_PATTERNS.match(text):
+        return True, "non-answer or refusal detected"
+
+    # Count meaningful words (excluding filler words and punctuation-only tokens)
+    words = re.findall(r"[a-zA-Z']+", text.lower())
+    meaningful = [w for w in words if w not in _FILLER_WORDS and len(w) > 1]
+    if len(meaningful) < 5:
+        return True, f"too short ({len(meaningful)} meaningful words)"
+
+    return False, ""
+
+
+def _apply_weak_answer_penalty(overall: float, relevancy: float | None, transcript: str) -> float:
+    """
+    If the answer is weak/non-answer, cap the overall score at 20.
+    If relevancy is already ≤20 (LLM detected weakness), cap at that value.
+    """
+    is_weak, _ = _is_weak_answer(transcript)
+    if is_weak:
+        return min(overall, 20.0)
+    # If LLM scored relevancy ≤20, trust that signal and cap overall
+    if relevancy is not None and relevancy <= 20:
+        return min(overall, 20.0)
+    return overall
 
 
 def _run_grammar(transcript: str, word_count: int) -> tuple[list, float, float, list]:
@@ -113,14 +186,13 @@ def analyze_audio(
 
     # 8. Overall score
     #   When a real question is present (mock interview) — weights sum to 1.0:
-    #     answer_relevancy  0.35  — highest: did the answer address the question?
-    #     fluency           0.20
-    #     grammar           0.15
-    #     filler            0.15
-    #     pronunciation     0.10
-    #     pace              0.05
+    #     answer_relevancy  0.40  — highest: did the answer address the question?
+    #     completeness      0.25  — approximated by fluency (length/depth proxy)
+    #     technical/behav.  0.20  — approximated by grammar score
+    #     communication     0.10  — filler score
+    #     grammar/written   0.05  — pace score
     #
-    #   When no real question (assessment-only) — redistribute that 35% weight:
+    #   When no real question (assessment-only) — redistribute that 40% weight:
     #     fluency           0.30
     #     grammar           0.25
     #     filler            0.20
@@ -128,11 +200,10 @@ def analyze_audio(
     #     pace              0.10
     if relevancy_score is not None:
         overall = round(
-            relevancy_score * 0.35
-            + fl_score * 0.20
-            + g_score * 0.15
-            + f_score * 0.15
-            + pronun_score * 0.10
+            relevancy_score * 0.40
+            + fl_score * 0.25
+            + g_score * 0.20
+            + f_score * 0.10
             + pa_score * 0.05,
             1,
         )
@@ -145,6 +216,9 @@ def analyze_audio(
             + pa_score * 0.10,
             1,
         )
+
+    # Apply weak-answer penalty — caps score at 20 for non-answers
+    overall = _apply_weak_answer_penalty(overall, relevancy_score, transcript)
 
     return SessionReport(
         transcript=transcript,
@@ -238,11 +312,10 @@ def analyze_with_transcript(
     # Overall — same conditional weighting as analyze_audio
     if relevancy_score is not None:
         overall = round(
-            relevancy_score * 0.35
-            + fl_score * 0.20
-            + g_score * 0.15
-            + f_score * 0.15
-            + pronun_score * 0.10
+            relevancy_score * 0.40
+            + fl_score * 0.25
+            + g_score * 0.20
+            + f_score * 0.10
             + pa_score * 0.05,
             1,
         )
@@ -255,6 +328,9 @@ def analyze_with_transcript(
             + pa_score * 0.10,
             1,
         )
+
+    # Apply weak-answer penalty — caps score at 20 for non-answers
+    overall = _apply_weak_answer_penalty(overall, relevancy_score, transcript)
 
     return SessionReport(
         transcript=transcript,
@@ -324,6 +400,9 @@ def analyze_transcript_only(
             g_score * 0.60 + f_score * 0.40,
             1,
         )
+
+    # Apply weak-answer penalty — caps score at 20 for non-answers
+    overall = _apply_weak_answer_penalty(overall, relevancy_score, transcript)
 
     return SessionReport(
         transcript=transcript,
