@@ -10,11 +10,66 @@ import concurrent.futures
 import logging
 import re
 import threading
+import time
 
 from prompts import GRAMMAR_SCORE, RELEVANCY_SCORE
 from schema import GrammarIssue
 
 logger = logging.getLogger(__name__)
+
+
+def _llm_call_with_retry(client, messages: list, model: str, temperature: float, call_label: str) -> str:
+    """
+    Execute a Sarvam LLM chat call with timeout (LLM_TIMEOUT_SECONDS) and
+    exponential-backoff retry (up to LLM_MAX_RETRIES attempts).
+
+    Returns the raw response content string.
+    Raises RuntimeError when all retries are exhausted.
+    """
+    from config import LLM_MAX_RETRIES, LLM_RETRY_BASE_DELAY, LLM_TIMEOUT_SECONDS
+
+    def _call():
+        return client.chat.completions(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+        )
+
+    last_exc: Exception | None = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        t0 = time.monotonic()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(_call)
+                response = future.result(timeout=LLM_TIMEOUT_SECONDS)
+            elapsed = round(time.monotonic() - t0, 2)
+            logger.info(
+                "[LLM_SUCCESS] label=%s attempt=%d elapsed=%.2fs",
+                call_label, attempt, elapsed,
+            )
+            return response.choices[0].message.content or ""
+        except concurrent.futures.TimeoutError as exc:
+            elapsed = round(time.monotonic() - t0, 2)
+            last_exc = RuntimeError(f"Sarvam LLM timed out after {LLM_TIMEOUT_SECONDS}s")
+            logger.warning(
+                "[LLM_RETRY] label=%s attempt=%d/%d reason=timeout elapsed=%.2fs",
+                call_label, attempt, LLM_MAX_RETRIES, elapsed,
+            )
+        except Exception as exc:
+            elapsed = round(time.monotonic() - t0, 2)
+            last_exc = exc
+            logger.warning(
+                "[LLM_RETRY] label=%s attempt=%d/%d reason=%s elapsed=%.2fs",
+                call_label, attempt, LLM_MAX_RETRIES, exc, elapsed,
+            )
+        if attempt < LLM_MAX_RETRIES:
+            delay = LLM_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.info("[LLM_RETRY] Waiting %.1fs before attempt %d…", delay, attempt + 1)
+            time.sleep(delay)
+
+    raise RuntimeError(
+        f"Sarvam LLM ({call_label}) failed after {LLM_MAX_RETRIES} attempts: {last_exc}"
+    ) from last_exc
 
 # ─── LanguageTool (Java-based, optional) ────────────────
 _tool = None
@@ -127,39 +182,18 @@ def score_grammar_llm(transcript: str) -> dict:
             return FALLBACK
 
         from sarvamai import SarvamAI
+        import json
 
         client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
-
-        # Truncate very long transcripts to stay within token limits
         truncated = transcript[:1500]
-
         messages = [{"role": "user", "content": GRAMMAR_SCORE.render(transcript=truncated)}]
 
-        # Apply a 25-second timeout so the call can never hang indefinitely.
-        def _call():
-            return client.chat.completions(
-                messages=messages,
-                model=SARVAM_MODEL,
-                temperature=0.1,  # low temperature for consistent scoring
-            )
+        raw = _llm_call_with_retry(client, messages, SARVAM_MODEL, 0.1, "grammar_score")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_call)
-            try:
-                response = future.result(timeout=25)
-            except concurrent.futures.TimeoutError:
-                logger.warning("LLM grammar scorer timed out after 25 s — using fallback.")
-                return FALLBACK
-
-        raw = response.choices[0].message.content or ""
-
-        # Extract JSON from the response (handle nested objects via greedy match)
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             logger.warning("LLM grammar scorer returned unexpected format: %s", raw[:200])
             return FALLBACK
-
-        import json
 
         data = json.loads(m.group(0))
         grammar_val = max(0, min(100, int(data.get("grammar", 75))))
@@ -169,9 +203,7 @@ def score_grammar_llm(transcript: str) -> dict:
 
         logger.info(
             "LLM grammar score: grammar=%d, pronunciation=%d, issues=%d",
-            grammar_val,
-            pronun_val,
-            len(issues),
+            grammar_val, pronun_val, len(issues),
         )
         return {"grammar": grammar_val, "pronunciation": pronun_val, "grammar_issues": issues}
 
@@ -206,10 +238,9 @@ def score_relevancy_llm(transcript: str, question: str) -> dict:
             return FALLBACK
 
         from sarvamai import SarvamAI
+        import json
 
         client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
-
-        # Truncate to stay within token limits
         truncated_transcript = transcript[:1500]
         truncated_question = question[:500]
 
@@ -223,28 +254,12 @@ def score_relevancy_llm(transcript: str, question: str) -> dict:
             }
         ]
 
-        def _call():
-            return client.chat.completions(
-                messages=messages,
-                model=SARVAM_MODEL,
-                temperature=0.1,
-            )
+        raw = _llm_call_with_retry(client, messages, SARVAM_MODEL, 0.1, "relevancy_score")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_call)
-            try:
-                response = future.result(timeout=25)
-            except concurrent.futures.TimeoutError:
-                logger.warning("LLM relevancy scorer timed out after 25 s — using fallback.")
-                return FALLBACK
-
-        raw = response.choices[0].message.content or ""
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             logger.warning("LLM relevancy scorer returned unexpected format: %s", raw[:200])
             return FALLBACK
-
-        import json
 
         data = json.loads(m.group(0))
         relevancy_val = max(0, min(100, int(data.get("relevancy", 75))))

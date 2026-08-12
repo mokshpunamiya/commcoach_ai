@@ -88,14 +88,31 @@ def _is_weak_answer(transcript: str) -> tuple[bool, str]:
 
 def _apply_weak_answer_penalty(overall: float, relevancy: float | None, transcript: str) -> float:
     """
-    If the answer is weak/non-answer, cap the overall score at 20.
-    If relevancy is already ≤20 (LLM detected weakness), cap at that value.
+    Guardrail: weak/non-answers are capped at 20 regardless of other sub-scores.
+
+    Priority order:
+    1. Rule-based weak-answer detector (pattern match + meaningful-word count)
+       → always caps at 20; further reduces to ≤10 for very short/empty answers.
+    2. LLM relevancy signal ≤ 20 → trust that signal, cap overall at that value.
+
+    This override cannot be bypassed by grammar or fluency scores.
     """
-    is_weak, _ = _is_weak_answer(transcript)
+    is_weak, reason = _is_weak_answer(transcript)
     if is_weak:
-        return min(overall, 20.0)
-    # If LLM scored relevancy ≤20, trust that signal and cap overall
+        # Empty or trivially short answers cap lower than "I don't know" type answers
+        text = (transcript or "").strip()
+        cap = 5 if not text else 10 if len(text) < 10 else 20
+        logger.info(
+            "Weak-answer penalty applied: reason=%r cap=%d original_score=%.1f",
+            reason, cap, overall,
+        )
+        return min(overall, float(cap))
+    # If LLM scored relevancy ≤ 20, trust that signal and cap overall
     if relevancy is not None and relevancy <= 20:
+        logger.info(
+            "LLM relevancy penalty applied: relevancy=%.1f original_score=%.1f",
+            relevancy, overall,
+        )
         return min(overall, 20.0)
     return overall
 

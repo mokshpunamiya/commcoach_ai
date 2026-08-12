@@ -914,8 +914,13 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   const [starting,setStarting]=useState(false);
   const startingRef=useRef(false);
   const [confirmRestart,setConfirmRestart]=useState(false);
-  /* evaluationFrozen: once results are shown, never re-run evaluateAll unless explicit restart */
-  const evaluationFrozenRef=useRef(false);
+  /*
+   * evaluationFrozen: once results are shown, never re-run evaluateAll unless
+   * explicit restart. Seed from localStorage so page-refresh also respects it.
+   */
+  const evaluationFrozenRef=useRef(
+    localStorage.getItem("cc_mip_completed")==="true"
+  );
 
   /* Sync states to localStorage */
   useEffect(() => {
@@ -936,7 +941,11 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
 
   useEffect(() => {
     localStorage.setItem("cc_mip_scoredLog", JSON.stringify(scoredLog));
-  }, [scoredLog]);
+    /* Also persist completion flag — survives page refresh */
+    if(scoredLog.length>0&&phase==="results"){
+      localStorage.setItem("cc_mip_completed","true");
+    }
+  }, [scoredLog,phase]);
 
   useEffect(() => {
     if (sessionId) localStorage.setItem("cc_mip_sessionId", sessionId);
@@ -947,6 +956,20 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     if (dbSessionId) localStorage.setItem("cc_mip_dbSessionId", dbSessionId);
     else localStorage.removeItem("cc_mip_dbSessionId");
   }, [dbSessionId]);
+
+  /*
+   * Safety guard: if the page restores to "evaluating" but scoredLog already
+   * has results (loaded from localStorage), jump straight to "results".
+   * Also guard against re-evaluation when evaluation is frozen.
+   */
+  useEffect(()=>{
+    if(phase==="evaluating"&&scoredLog.length>0){
+      setPhase("results");
+    }else if(phase==="evaluating"&&evaluationFrozenRef.current){
+      /* completed flag set but scoredLog cleared? go back to setup */
+      setPhase("setup");
+    }
+  },[]);  /* run once on mount only */
 
   /* ── Audio recording state ── */
   const [answerMode,setAnswerMode]=useState("text");
@@ -1057,24 +1080,20 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
       try{
         let data;
         if(sessionId&&audioBlob){
-          /* Audio path — STT on server, real relevancy vs actual question */
+          /* Audio path — STT on server; pass question as interview_topic for relevancy scoring.
+             Use /analyze directly (not /interview/answer) so we don't trigger an extra
+             question-generation LLM call for each answer in batch evaluation. */
           const form=new FormData();
-          form.append("session_id",sessionId);form.append("user_id",userId);
+          form.append("user_id",userId);
+          form.append("interview_topic",question||interviewType);
           form.append("file",audioBlob,"answer.webm");
-          const resp=await fetch(`${API_URL}/interview/answer`,{method:"POST",body:form});
-          if(!resp.ok)throw new Error(`API ${resp.status}`);
-          data=await resp.json();
-        }else if(sessionId){
-          /* Text path — use /interview/answer for real relevancy scoring */
-          const form=new FormData();
-          form.append("session_id",sessionId);form.append("user_id",userId);
-          form.append("transcript",ans);
-          const resp=await fetch(`${API_URL}/interview/answer`,{method:"POST",body:form});
+          const resp=await fetch(`${API_URL}/analyze`,{method:"POST",body:form});
           if(!resp.ok)throw new Error(`API ${resp.status}`);
           data=await resp.json();
         }else{
-          /* Fallback: no session — use /analyze/text */
-          const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,transcript:ans,interview_topic:interviewType})});
+          /* Text path — use /analyze/text with the specific question for relevancy.
+             This avoids the extra generate_question LLM call from /interview/answer. */
+          const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,transcript:ans,interview_topic:question||interviewType})});
           if(!resp.ok)throw new Error(`API ${resp.status}`);
           data=await resp.json();
         }
@@ -1105,6 +1124,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     }
     /* Freeze results — prevent re-evaluation on refresh or tab switch */
     evaluationFrozenRef.current=true;
+    localStorage.setItem("cc_mip_completed","true");
     setScoredLog(results);setPhase("results");
   };
 
@@ -1119,13 +1139,10 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     setDbSessionId(null);
     setQuestions([]);
     setConfirmRestart(false);
-    localStorage.removeItem("cc_mip_phase");
-    localStorage.removeItem("cc_mip_questions");
-    localStorage.removeItem("cc_mip_idx");
-    localStorage.removeItem("cc_mip_rawLog");
-    localStorage.removeItem("cc_mip_scoredLog");
-    localStorage.removeItem("cc_mip_sessionId");
-    localStorage.removeItem("cc_mip_dbSessionId");
+    /* Clear ALL interview state from localStorage — full clean slate */
+    ["cc_mip_phase","cc_mip_questions","cc_mip_idx","cc_mip_rawLog",
+     "cc_mip_scoredLog","cc_mip_sessionId","cc_mip_dbSessionId",
+     "cc_mip_completed"].forEach(k=>localStorage.removeItem(k));
     const skills = resume?.skills || [];
     const primarySkill = skills[0] || "software engineering";
     const customQuestions = [
@@ -1159,14 +1176,10 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     setDbSessionId(null);
     setQuestions([]);
     
-    localStorage.removeItem("cc_mip_phase");
-    localStorage.removeItem("cc_mip_questions");
-    localStorage.removeItem("cc_mip_idx");
-    localStorage.removeItem("cc_mip_rawLog");
-    localStorage.removeItem("cc_mip_scoredLog");
-    localStorage.removeItem("cc_mip_sessionId");
-    localStorage.removeItem("cc_mip_dbSessionId");
-    
+    ["cc_mip_phase","cc_mip_questions","cc_mip_idx","cc_mip_rawLog",
+     "cc_mip_scoredLog","cc_mip_sessionId","cc_mip_dbSessionId",
+     "cc_mip_completed"].forEach(k=>localStorage.removeItem(k));
+
     setPhase("setup");
   };
 
@@ -1484,20 +1497,22 @@ function computeBadges(history,interviewSessions){
   if(last&&last.fillers<15)badges.push("✂️ Filler Buster");
   if(last&&last.confidence>=65)badges.push("💪 Confident Speaker");
   if(last&&last.grammar>=75)badges.push("📘 Grammar Pro");
+  if(last&&(last.relevancy||0)>=70)badges.push("🎯 On-Point Answers");
   if(interviewSessions.some(s=>s.avgScore>=70))badges.push("🏆 Interview Ready");
   return badges;
 }
 
 function DashboardPage({history,interviewSessions,onNewSession,onReset,userId="default_user",loading=false}){
-  const [visible,setVisible]=useState({fluency:true,grammar:true,pronunciation:true,confidence:true});
+  const [visible,setVisible]=useState({fluency:true,grammar:true,pronunciation:true,confidence:true,relevancy:true});
   const [confirmReset,setConfirmReset]=useState(false);
   const [resetting,setResetting]=useState(false);
   const toggle=k=>setVisible(v=>({...v,[k]:!v[k]}));
-  const lineDefs=[{key:"fluency",color:C.coral,label:"Fluency"},{key:"grammar",color:C.yellow,label:"Grammar"},{key:"pronunciation",color:C.mint,label:"Pronunciation"},{key:"confidence",color:C.purple,label:"Confidence"}];
+  const lineDefs=[{key:"fluency",color:C.coral,label:"Fluency"},{key:"grammar",color:C.yellow,label:"Grammar"},{key:"pronunciation",color:C.mint,label:"Pronunciation"},{key:"confidence",color:C.purple,label:"Confidence"},{key:"relevancy",color:C.fillerTone,label:"Relevancy"}];
 
   const n=history.length;
   const avgOverall=n?Math.round(history.reduce((a,s)=>a+(s.overall||0),0)/n):0;
   const avgGrammar=n?Math.round(history.reduce((a,s)=>a+(s.grammar||0),0)/n):0;
+  const avgRelevancy=n?Math.round(history.reduce((a,s)=>a+(s.relevancy||0),0)/n):0;
 
   const handleReset=async()=>{
     setResetting(true);
@@ -1508,7 +1523,7 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset,userId="d
 
   /* Loading skeleton */
   if(loading)return e("div",{className:"cc-fade",style:{maxWidth:900,margin:"0 auto",padding:"0 20px 60px"}},
-    e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}},[1,2,3,4,5,6].map(i=>e("div",{key:i,style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:16}},e(Sk,{w:"40%",h:10,mb:12}),e(Sk,{w:"60%",h:22})))),
+    e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}},[1,2,3,4,5,6,7].map(i=>e("div",{key:i,style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:16}},e(Sk,{w:"40%",h:10,mb:12}),e(Sk,{w:"60%",h:22})))),
     e("div",{style:{marginBottom:8}},e(Sk,{h:180})),
     e(SkCard,null),e(SkCard,null),e(SkCard,null)
   );
@@ -1553,6 +1568,7 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset,userId="d
       e(StatCard,{Icon:SvgFlame,label:"Streak",value:`${computeStreak([...history,...interviewSessions.map(s=>({date:s.date||"Today"}))])} days`,color:C.yellow}),
       e(StatCard,{Icon:SvgTrend,label:"Avg score",value:avgOverall||"—",color:C.mint}),
       e(StatCard,{Icon:SvgBook,label:"Avg grammar",value:avgGrammar||"—",color:C.purple}),
+      e(StatCard,{Icon:SvgGauge,label:"Avg relevancy",value:avgRelevancy||"—",color:C.fillerTone}),
       e(StatCard,{Icon:SvgUsers,label:"Mock interviews",value:interviewSessions.length,color:C.coral}),
       e(StatCard,{Icon:SvgAward,label:"Badges",value:badges.length,color:C.yellow})
     ),
@@ -1708,6 +1724,7 @@ function CommCoachApp(){
           pace:s.pace||0,
           overall:s.overall||0,
           fillers:s.fillers||0,
+          relevancy:s.relevancy||0,
         })));
       })
       .catch(()=>{})
@@ -1744,7 +1761,7 @@ function CommCoachApp(){
 
     setCurrentSession({language,interviewType,practiceMode,transcript:tokens,feedback});
     const n=history.length+1;
-    setHistory(prev=>[...prev,{session:`S${n}`,date:"Today",practiceMode,interviewType,fluency:feedback.fluency||0,grammar:feedback.grammar||0,pronunciation:feedback.pronunciation||0,confidence:feedback.confidence||0,pace:feedback.pace||0,overall:feedback.overall||0,fillers:feedback.fillers||0}]);
+    setHistory(prev=>[...prev,{session:`S${n}`,date:"Today",practiceMode,interviewType,fluency:feedback.fluency||0,grammar:feedback.grammar||0,pronunciation:feedback.pronunciation||0,confidence:feedback.confidence||0,pace:feedback.pace||0,overall:feedback.overall||0,fillers:feedback.fillers||0,relevancy:feedback.relevancy||0}]);
     setPage(2);
   };
 
@@ -1760,8 +1777,33 @@ function CommCoachApp(){
     setHistory(prev=>[...prev,{
       session:`S${n}`,date:"Today",practiceMode:"Mock Interview",interviewType:summary.type,
       fluency:avgM("fluency_score"),grammar:avgM("grammar_score"),pronunciation:avgM("pronunciation_score"),
-      confidence:confAvg,pace:avgM("pace_score"),overall:summary.avgScore,fillers:avgM("filler_word_count"),
+      confidence:confAvg,pace:avgM("pace_score"),overall:summary.avgScore,
+      fillers:avgM("filler_word_count"),relevancy:avgM("answer_relevancy_score"),
     }]);
+    // Re-fetch DB sessions so dashboard reflects persisted data
+    setSessionsLoading(true);
+    fetch(`${API_URL}/sessions/${userId}`)
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{
+        if(!d)return;
+        const sess=d.sessions||[];
+        setHistory(sess.map((s,i)=>({
+          session:`S${sess.length-i}`,
+          date:(s.created_at||"").slice(0,10)||"—",
+          practiceMode:s.type==="interview"?"Mock Interview":"Analyze Audio",
+          interviewType:s.topic||"HR",
+          fluency:s.fluency||0,
+          grammar:s.grammar||0,
+          pronunciation:s.pronunciation||0,
+          confidence:s.confidence||0,
+          pace:s.pace||0,
+          overall:s.overall||0,
+          fillers:s.fillers||0,
+          relevancy:s.relevancy||0,
+        })));
+      })
+      .catch(()=>{})
+      .finally(()=>setSessionsLoading(false));
     setPage(4);
   };
 

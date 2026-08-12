@@ -65,6 +65,13 @@ FILLER_WORDS_BY_LANGUAGE: dict[str, set[str]] = {
     lang["label"]: set(lang["fillers"]) for lang in _LANG_REGISTRY
 }
 
+# ─── LLM timeouts & retry ───────────────────────────────
+# Single source of truth — raise this if Sarvam is slow in your environment.
+LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "3"))
+# Base delay for exponential backoff: attempt 1→2s, 2→4s, 3→8s
+LLM_RETRY_BASE_DELAY = float(os.getenv("LLM_RETRY_BASE_DELAY", "2.0"))
+
 # ─── Server ─────────────────────────────────────────────
 API_HOST = os.getenv("API_HOST", "127.0.0.1")
 API_PORT = int(os.getenv("API_PORT", "8000"))

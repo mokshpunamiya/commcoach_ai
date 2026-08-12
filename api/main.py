@@ -422,10 +422,11 @@ async def list_sessions(user_id: str):
             s["confidence"] = round(sum(conf_vals) / len(conf_vals)) if conf_vals else 0
             s["pace"] = _avg("pace_score")
             s["fillers"] = _avg("filler_word_count")
+            s["relevancy"] = _avg("answer_relevancy_score")
         else:
             s = dict(s)
             s["overall"] = s["fluency"] = s["grammar"] = 0
-            s["pronunciation"] = s["confidence"] = s["pace"] = s["fillers"] = 0
+            s["pronunciation"] = s["confidence"] = s["pace"] = s["fillers"] = s["relevancy"] = 0
         enriched.append(s)
     return {"sessions": enriched}
 

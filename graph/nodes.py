@@ -10,11 +10,15 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import time
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from analysis.analyzer import analyze_audio, analyze_transcript_only, analyze_with_transcript
 from config import (
+    LLM_MAX_RETRIES,
+    LLM_RETRY_BASE_DELAY,
+    LLM_TIMEOUT_SECONDS,
     SARVAM_API_KEY,
     SARVAM_MODEL,
 )
@@ -43,10 +47,14 @@ def _get_sarvam_client():
     return _sarvam_client
 
 
-def _sarvam_chat(messages: list) -> str:
+def _sarvam_chat(messages: list, call_label: str = "llm") -> str:
     """
-    Call Sarvam AI chat completions with LangChain-style message objects.
-    Returns the assistant's reply as a plain string.
+    Call Sarvam AI chat completions with retry + exponential backoff.
+
+    Uses LLM_TIMEOUT_SECONDS (from config.py / .env) for each attempt.
+    Retries up to LLM_MAX_RETRIES times with delays: 2s, 4s, 8s, …
+
+    Raises RuntimeError only after all retries are exhausted.
     """
     client = _get_sarvam_client()
 
@@ -62,7 +70,6 @@ def _sarvam_chat(messages: list) -> str:
         else:
             sarvam_messages.append({"role": "user", "content": str(msg)})
 
-    # Run with a hard 25-second timeout so the graph never hangs indefinitely.
     def _call():
         return client.chat.completions(
             messages=sarvam_messages,
@@ -70,13 +77,44 @@ def _sarvam_chat(messages: list) -> str:
             temperature=0.7,
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        future = ex.submit(_call)
+    last_exc: Exception | None = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        t0 = time.monotonic()
         try:
-            response = future.result(timeout=25)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(_call)
+                response = future.result(timeout=LLM_TIMEOUT_SECONDS)
+            elapsed = round(time.monotonic() - t0, 2)
+            logger.info(
+                "[LLM_SUCCESS] label=%s attempt=%d elapsed=%.2fs",
+                call_label, attempt, elapsed,
+            )
+            return response.choices[0].message.content or ""
         except concurrent.futures.TimeoutError as exc:
-            raise RuntimeError("Sarvam LLM call timed out after 25 seconds") from exc
-    return response.choices[0].message.content or ""
+            elapsed = round(time.monotonic() - t0, 2)
+            last_exc = RuntimeError(
+                f"Sarvam LLM call timed out after {LLM_TIMEOUT_SECONDS}s"
+            )
+            logger.warning(
+                "[LLM_RETRY] label=%s attempt=%d/%d reason=timeout elapsed=%.2fs",
+                call_label, attempt, LLM_MAX_RETRIES, elapsed,
+            )
+        except Exception as exc:
+            elapsed = round(time.monotonic() - t0, 2)
+            last_exc = exc
+            logger.warning(
+                "[LLM_RETRY] label=%s attempt=%d/%d reason=%s elapsed=%.2fs",
+                call_label, attempt, LLM_MAX_RETRIES, exc, elapsed,
+            )
+
+        if attempt < LLM_MAX_RETRIES:
+            delay = LLM_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.info("[LLM_RETRY] Waiting %.1fs before attempt %d…", delay, attempt + 1)
+            time.sleep(delay)
+
+    raise RuntimeError(
+        f"Sarvam LLM failed after {LLM_MAX_RETRIES} attempts: {last_exc}"
+    ) from last_exc
 
 
 def get_llm():
@@ -92,13 +130,25 @@ def get_llm():
 def retrieve_memory_node(state: CoachState) -> dict:
     """Pull the user's long-term coaching profile from the store."""
     user_id = state.get("user_id", "default_user")
+    session_id = state.get("session_id", "unknown")
+    action = state.get("action", "unknown")
     profile = retrieve_user_memory(user_id)
-    logger.info(
-        "Retrieved long-term memory for '%s': %d past sessions, trend=%s",
-        user_id,
-        profile.get("total_sessions", 0),
-        profile.get("trend", "new"),
-    )
+
+    if action == "start_interview":
+        logger.info(
+            "[INTERVIEW_START] session_id=%s user_id=%s past_sessions=%d",
+            session_id, user_id, profile.get("total_sessions", 0),
+        )
+    elif action == "continue_interview":
+        logger.info(
+            "[ANSWER_RECEIVED] session_id=%s user_id=%s turn=%d",
+            session_id, user_id, state.get("turn_count", 0),
+        )
+    else:
+        logger.info(
+            "Retrieved long-term memory for '%s': %d past sessions, trend=%s",
+            user_id, profile.get("total_sessions", 0), profile.get("trend", "new"),
+        )
     return {"user_memory": profile}
 
 
@@ -197,7 +247,14 @@ def analyze_node(state: CoachState) -> dict:
 
 def generate_feedback_node(state: CoachState) -> dict:
     """Use the LLM to generate coaching feedback from the session report."""
+    session_id = state.get("session_id", "unknown")
+    user_id = state.get("user_id", "unknown")
     report = state.get("session_report")
+
+    logger.info(
+        "[EVALUATION_STARTED] session_id=%s user_id=%s", session_id, user_id
+    )
+
     if not report:
         return {
             "feedback": "No analysis available to generate feedback.",
@@ -225,9 +282,15 @@ def generate_feedback_node(state: CoachState) -> dict:
     ]
 
     try:
-        feedback_text = _sarvam_chat(messages)
+        feedback_text = _sarvam_chat(messages, call_label="feedback")
+        logger.info(
+            "[EVALUATION_COMPLETED] session_id=%s user_id=%s", session_id, user_id
+        )
     except Exception as e:
-        logger.error("LLM feedback generation failed: %s", e)
+        logger.error(
+            "[EVALUATION_FAILED] session_id=%s user_id=%s reason=%s",
+            session_id, user_id, e,
+        )
         feedback_text = _fallback_feedback(report)
 
     # Also store in conversation messages for memory
@@ -303,11 +366,18 @@ def _fallback_feedback(report: dict) -> str:
 
 def generate_question_node(state: CoachState) -> dict:
     """Generate the next interview question using the LLM."""
+    session_id = state.get("session_id", "unknown")
+    user_id = state.get("user_id", "unknown")
     user_memory = state.get("user_memory", {})
     profile_summary = _summarize_user_profile(user_memory)
     topic = state.get("interview_topic", "general software engineering")
     turn_count = state.get("turn_count", 0)
     resume = state.get("resume_text", "Not provided")
+
+    logger.info(
+        "[QUESTION_GENERATED] session_id=%s user_id=%s turn=%d topic=%s",
+        session_id, user_id, turn_count, topic,
+    )
 
     # Build conversation summary from messages
     conversation_summary = _build_conversation_summary(state.get("messages", []))
@@ -340,9 +410,12 @@ def generate_question_node(state: CoachState) -> dict:
     ]
 
     try:
-        question = _sarvam_chat(messages).strip()
+        question = _sarvam_chat(messages, call_label="question").strip()
     except Exception as e:
-        logger.error("Question generation failed: %s", e)
+        logger.error(
+            "[EVALUATION_FAILED] session_id=%s user_id=%s stage=question reason=%s",
+            session_id, user_id, e,
+        )
         question = _fallback_question(topic, turn_count)
 
     return {
