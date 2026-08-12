@@ -1042,6 +1042,9 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
 
   const start=async()=>{
     if(startingRef.current)return;
+    /* Always unfreeze evaluation when a brand-new interview begins */
+    evaluationFrozenRef.current=false;
+    localStorage.removeItem("cc_mip_completed");
     startingRef.current=true;setStarting(true);setSetupErr(null);
     const resumeText=(useResume&&resume)?(resume.text||resume.summary||""):null;
     const localBank=(generatedQuestions&&generatedQuestions.length>0)?generatedQuestions:generateQuestions(interviewType,resume,useResume);
@@ -1167,6 +1170,8 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     const avgScore=Math.round(scoredLog.reduce((a,e2)=>a+e2.score,0)/Math.max(scoredLog.length,1));
     onFinish({date:"Today",type:"Mock Interview",avgScore,questions:scoredLog.length,scoredLog});
     
+    /* Reset frozen guard so the next interview can evaluate normally */
+    evaluationFrozenRef.current=false;
     setRawLog([]);
     setScoredLog([]);
     setIdx(0);
