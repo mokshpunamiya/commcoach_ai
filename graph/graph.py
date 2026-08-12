@@ -156,6 +156,7 @@ def analyze_audio_file(
     user_id: str = "default_user",
     session_id: str | None = None,
     interview_topic: str | None = None,
+    user_goal: str | None = None,
 ) -> dict:
     """
     One-shot: upload audio → transcribe → analyze → feedback.
@@ -184,6 +185,7 @@ def analyze_audio_file(
         "resume_text": None,
         "turn_count": 0,
         "user_memory": None,
+        "user_goal": user_goal or "SDE",
         "error": None,
     }
 
@@ -197,6 +199,7 @@ def start_interview(
     session_id: str | None = None,
     topic: str = "general software engineering",
     resume_text: str | None = None,
+    user_goal: str | None = None,
 ) -> dict:
     """
     Start a new mock interview session.
@@ -224,6 +227,7 @@ def start_interview(
         "resume_text": resume_text,
         "turn_count": 0,
         "user_memory": None,
+        "user_goal": user_goal or "SDE",
         "error": None,
     }
 

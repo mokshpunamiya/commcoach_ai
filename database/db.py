@@ -25,6 +25,7 @@ def init_db():
             user_id TEXT NOT NULL,
             type TEXT NOT NULL,           -- 'analyze' | 'interview'
             topic TEXT,
+            goal TEXT,                    -- user career goal at time of session
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -41,21 +42,68 @@ def init_db():
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         );
 
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id TEXT PRIMARY KEY,
+            goal TEXT NOT NULL DEFAULT 'SDE',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
+
+        -- Migration: add goal column to sessions if it doesn't exist yet
+        -- (safe no-op if column already present)
     """)
+
+    # Safe column migration for existing DBs
+    try:
+        conn.execute("SELECT goal FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE sessions ADD COLUMN goal TEXT")
+
     conn.commit()
     conn.close()
 
 
-def create_session(user_id: str, session_type: str, topic: str | None = None) -> str:
-    """Create a new session record and return its ID."""
-    session_id = str(uuid.uuid4())
+def get_user_goal(user_id: str) -> str:
+    """Return the stored career goal for a user, defaulting to 'SDE'."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT goal FROM user_profiles WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row["goal"] if row else "SDE"
+
+
+def set_user_goal(user_id: str, goal: str) -> None:
+    """Upsert the career goal for a user."""
     now = datetime.now(UTC).isoformat()
     conn = get_conn()
     conn.execute(
-        "INSERT INTO sessions (id, user_id, type, topic, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (session_id, user_id, session_type, topic, now, now),
+        """INSERT INTO user_profiles (user_id, goal, created_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET goal=excluded.goal, updated_at=excluded.updated_at""",
+        (user_id, goal, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def create_session(
+    user_id: str,
+    session_type: str,
+    topic: str | None = None,
+    goal: str | None = None,
+) -> str:
+    """Create a new session record and return its ID."""
+    session_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    effective_goal = goal or get_user_goal(user_id)
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO sessions (id, user_id, type, topic, goal, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (session_id, user_id, session_type, topic, effective_goal, now, now),
     )
     conn.commit()
     conn.close()
@@ -94,7 +142,7 @@ def save_turn(
     return turn_id
 
 
-def get_sessions(user_id: str, limit: int = 20) -> list[dict]:
+def get_sessions(user_id: str, limit: int = 30) -> list[dict]:
     """Get recent sessions for a user."""
     conn = get_conn()
     rows = conn.execute(
@@ -125,14 +173,26 @@ def get_session_turns(session_id: str) -> list[dict]:
     return turns
 
 
+def get_full_session(session_id: str) -> dict | None:
+    """Get a session with all its turns (for the history detail view)."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    session = dict(row)
+    session["turns"] = get_session_turns(session_id)
+    return session
+
+
 def reset_user_sessions(user_id: str) -> int:
     """Delete all sessions and turns for a user. Returns the number of sessions deleted."""
     conn = get_conn()
-    # Count first so we can report back
     count = conn.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,)).fetchone()[
         0
     ]
-    # Cascade-delete turns for every session owned by this user
     conn.execute(
         "DELETE FROM turns WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)",
         (user_id,),

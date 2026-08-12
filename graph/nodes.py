@@ -373,10 +373,11 @@ def generate_question_node(state: CoachState) -> dict:
     topic = state.get("interview_topic", "general software engineering")
     turn_count = state.get("turn_count", 0)
     resume = state.get("resume_text", "Not provided")
+    user_goal = state.get("user_goal") or "SDE"
 
     logger.info(
-        "[QUESTION_GENERATED] session_id=%s user_id=%s turn=%d topic=%s",
-        session_id, user_id, turn_count, topic,
+        "[QUESTION_GENERATED] session_id=%s user_id=%s turn=%d topic=%s goal=%s",
+        session_id, user_id, turn_count, topic, user_goal,
     )
 
     # Build conversation summary from messages
@@ -401,10 +402,11 @@ def generate_question_node(state: CoachState) -> dict:
             content=QUESTION_USER.render(
                 topic=topic,
                 turn_count=turn_count,
-                resume=resume[:2000] if resume else "Not provided",
+                resume=resume[:3000] if resume else "Not provided",
                 profile_summary=profile_summary,
                 conversation_summary=conversation_summary,
                 prev_analysis_summary=prev_analysis,
+                user_goal=user_goal,
             )
         ),
     ]

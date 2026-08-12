@@ -58,6 +58,7 @@ class CoachState(TypedDict):
     interview_topic: str | None
     resume_text: str | None
     turn_count: int
+    user_goal: str | None  # career goal: SDE, AI Engineer, Data Scientist, QA, DevOps …
 
     # ── Long-term memory (cross-session) ──
     user_memory: dict[str, Any] | None

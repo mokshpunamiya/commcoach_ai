@@ -79,6 +79,7 @@ class StartInterviewBody(BaseModel):
     user_id: str = "default_user"
     topic: str = "general software engineering"
     resume_text: str | None = None
+    user_goal: str | None = None  # e.g. "SDE", "AI Engineer", "Data Scientist"
 
 
 class AnswerBody(BaseModel):
@@ -91,6 +92,12 @@ class TextAnalyzeBody(BaseModel):
     user_id: str = "default_user"
     transcript: str
     interview_topic: str | None = None
+    user_goal: str | None = None
+
+
+class SetGoalBody(BaseModel):
+    user_id: str = "default_user"
+    goal: str
 
 
 # ─── Endpoints ──────────────────────────────────────────
@@ -131,6 +138,29 @@ def _safe_filename(original: str) -> str:
     return f"{uuid.uuid4()}{suffix}"
 
 
+@app.get("/user/goal/{user_id}")
+async def get_user_goal_endpoint(user_id: str):
+    """Get the career goal for a user."""
+    goal = db.get_user_goal(user_id)
+    return {"user_id": user_id, "goal": goal}
+
+
+@app.post("/user/goal")
+async def set_user_goal_endpoint(body: SetGoalBody):
+    """Set / update the career goal for a user."""
+    db.set_user_goal(body.user_id, body.goal)
+    return {"user_id": body.user_id, "goal": body.goal}
+
+
+@app.get("/sessions/detail/{session_id}")
+async def get_session_full_detail(session_id: str):
+    """Return a session with all turns and per-turn metrics (for history page)."""
+    session = db.get_full_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return session
+
+
 @app.post("/analyze")
 @limiter.limit("10/minute")
 async def analyze(
@@ -138,6 +168,7 @@ async def analyze(
     file: UploadFile = File(...),
     user_id: str = Form("default_user"),
     interview_topic: str | None = Form(None),
+    user_goal: str | None = Form(None),
 ):
     """
     Upload an audio file → transcribe → analyze → generate coaching feedback.
@@ -152,6 +183,9 @@ async def analyze(
         shutil.copyfileobj(file.file, f)
     logger.info("Saved upload to %s", file_path)
 
+    # Resolve goal: form field → stored goal → default
+    effective_goal = user_goal or db.get_user_goal(user_id)
+
     try:
         # Run the blocking graph call in a thread so the event loop stays free
         result = await asyncio.to_thread(
@@ -159,10 +193,11 @@ async def analyze(
             audio_path=str(file_path),
             user_id=user_id,
             interview_topic=interview_topic,
+            user_goal=effective_goal,
         )
 
         # Also save to DB — use the DB-created session_id for turn linkage
-        db_session_id = db.create_session(user_id, "analyze", interview_topic)
+        db_session_id = db.create_session(user_id, "analyze", interview_topic, effective_goal)
         report = result.get("session_report")
         db.save_turn(
             session_id=db_session_id,
@@ -243,6 +278,7 @@ async def analyze_text(request: Request, body: TextAnalyzeBody):
     try:
         from graph.graph import get_graph
 
+        effective_goal = body.user_goal or db.get_user_goal(body.user_id)
         thread_id = f"analyze-{uuid.uuid4()}"
         graph = get_graph()
         initial_state = {
@@ -260,6 +296,7 @@ async def analyze_text(request: Request, body: TextAnalyzeBody):
             "resume_text": None,
             "turn_count": 0,
             "user_memory": None,
+            "user_goal": effective_goal,
             "error": None,
         }
         config = {"configurable": {"thread_id": thread_id}}
@@ -267,7 +304,7 @@ async def analyze_text(request: Request, body: TextAnalyzeBody):
 
         report = result.get("session_report")
         # Save to DB with a proper linked session record
-        db_session_id = db.create_session(body.user_id, "analyze", body.interview_topic)
+        db_session_id = db.create_session(body.user_id, "analyze", body.interview_topic, effective_goal)
         db.save_turn(
             session_id=db_session_id,
             turn_number=0,
@@ -286,11 +323,13 @@ async def analyze_text(request: Request, body: TextAnalyzeBody):
 async def interview_start(request: Request, body: StartInterviewBody):
     """Start a new mock interview — returns the first question."""
     try:
+        effective_goal = body.user_goal or db.get_user_goal(body.user_id)
         result = await asyncio.to_thread(
             start_interview,
             user_id=body.user_id,
             topic=body.topic,
             resume_text=body.resume_text,
+            user_goal=effective_goal,
         )
         langgraph_session_id = result.get("session_id", "unknown")
         question = result.get("current_question", "")
@@ -298,7 +337,7 @@ async def interview_start(request: Request, body: StartInterviewBody):
         # Save to DB — use the DB-created session_id for turn linkage.
         # Return the LangGraph thread_id separately so the client can pass
         # it back to /interview/answer for conversation continuity.
-        db_session_id = db.create_session(body.user_id, "interview", body.topic)
+        db_session_id = db.create_session(body.user_id, "interview", body.topic, effective_goal)
         db.save_turn(
             session_id=db_session_id,
             turn_number=0,
@@ -404,17 +443,17 @@ async def list_sessions(user_id: str):
             for t in turns
             if t.get("session_report") and isinstance(t["session_report"], dict)
         ]
+
+        def _avg(key, rpts=reports):
+            vals = [r.get(key) or 0 for r in rpts]
+            return round(sum(vals) / len(vals)) if vals else 0
+
+        s = dict(s)
         if reports:
-
-            def _avg(key, rpts=reports):
-                vals = [r.get(key) or 0 for r in rpts]
-                return round(sum(vals) / len(vals)) if vals else 0
-
             _conf_map = {"low": 40, "medium": 65, "high": 85}
             conf_vals = [
                 _conf_map.get((r.get("confidence_level") or "medium").lower(), 65) for r in reports
             ]
-            s = dict(s)
             s["overall"] = _avg("overall_score")
             s["fluency"] = _avg("fluency_score")
             s["grammar"] = _avg("grammar_score")
@@ -423,12 +462,32 @@ async def list_sessions(user_id: str):
             s["pace"] = _avg("pace_score")
             s["fillers"] = _avg("filler_word_count")
             s["relevancy"] = _avg("answer_relevancy_score")
+            s["filler_score"] = _avg("filler_score")
         else:
-            s = dict(s)
             s["overall"] = s["fluency"] = s["grammar"] = 0
             s["pronunciation"] = s["confidence"] = s["pace"] = s["fillers"] = s["relevancy"] = 0
+            s["filler_score"] = 0
+
+        # Attach turn summaries for the history detail view
+        s["turn_summaries"] = [
+            {
+                "turn_number": t.get("turn_number"),
+                "question": t.get("question"),
+                "transcript": t.get("transcript"),
+                "feedback": t.get("feedback"),
+                "overall_score": (t.get("session_report") or {}).get("overall_score"),
+                "fluency_score": (t.get("session_report") or {}).get("fluency_score"),
+                "grammar_score": (t.get("session_report") or {}).get("grammar_score"),
+                "filler_count": (t.get("session_report") or {}).get("filler_word_count"),
+                "confidence": (t.get("session_report") or {}).get("confidence_level"),
+                "wpm": (t.get("session_report") or {}).get("words_per_minute"),
+                "created_at": t.get("created_at"),
+            }
+            for t in turns
+        ]
+
         enriched.append(s)
-    return {"sessions": enriched}
+    return {"sessions": enriched, "user_goal": db.get_user_goal(user_id)}
 
 
 @app.get("/session/{session_id}")
