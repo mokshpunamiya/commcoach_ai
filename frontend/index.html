@@ -11,7 +11,7 @@
   <script src="/static/vendor/Recharts.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{background:#14122B;color:#F7F4FF;font-family:sans-serif;}
+    body{background:#14122B;color:#F7F4FF;font-family:-apple-system,"Segoe UI",system-ui,sans-serif;}
     #root{min-height:100vh;}
     #splash{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:18px;}
     @keyframes spin{to{transform:rotate(360deg);}}
@@ -27,6 +27,16 @@
     .cc-textarea{resize:vertical;min-height:90px;line-height:1.5;}
     .cc-input::placeholder,.cc-textarea::placeholder{color:#9C97C4;}
     #error-banner{display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#FF5533;color:#14122B;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;max-width:90vw;text-align:center;}
+    /* ── GNOME HIG: visible keyboard focus rings ── */
+    :focus-visible{outline:2px solid #FF5533;outline-offset:3px;border-radius:6px;}
+    button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid #FF5533;outline-offset:3px;}
+    /* ── Responsive: stepper wraps on very small screens ── */
+    @media(max-width:480px){
+      .cc-input,.cc-textarea{font-size:16px;}/* prevent iOS zoom */
+    }
+    /* ── Skeleton loading animation ── */
+    @keyframes ccSkeleton{0%,100%{opacity:.4;}50%{opacity:.8;}}
+    .cc-skeleton{background:#1E1B42;border-radius:8px;animation:ccSkeleton 1.4s ease-in-out infinite;}
   </style>
   <!-- Fallback guard: hide splash if app.js never mounts React -->
   <script>

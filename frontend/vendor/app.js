@@ -114,6 +114,59 @@ const pBtn={display:"flex",alignItems:"center",justifyContent:"center",gap:8,bac
 const sBtn={display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"transparent",color:C.text,fontFamily:FD,fontWeight:600,fontSize:14,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"13px 22px",cursor:"pointer"};
 const gBtn={display:"flex",alignItems:"center",gap:6,background:"transparent",color:C.muted,fontFamily:FB,fontWeight:500,fontSize:12.5,border:`1px solid ${C.border}`,borderRadius:999,padding:"8px 14px",cursor:"pointer"};
 
+/* ── Toast notification system ── */
+let _toastSetItems=null;
+function ToastContainer(){
+  const [items,setItems]=useState([]);
+  _toastSetItems=setItems;
+  if(!items.length)return null;
+  return e("div",{role:"status","aria-live":"polite",style:{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",display:"flex",flexDirection:"column",alignItems:"center",gap:8,zIndex:9000,pointerEvents:"none"}},
+    items.map(it=>e("div",{key:it.id,className:"cc-fade",style:{
+      background:it.type==="error"?C.coral:it.type==="success"?C.mint:C.card,
+      color:it.type==="error"||it.type==="success"?C.bg:C.text,
+      fontFamily:FB,fontSize:13,borderRadius:10,padding:"10px 18px",
+      border:`1px solid ${it.type==="error"?C.coral:it.type==="success"?C.mint:C.border}`,
+      pointerEvents:"auto",boxShadow:"0 4px 16px rgba(0,0,0,0.4)",maxWidth:"80vw",textAlign:"center",
+    }},it.msg))
+  );
+}
+window.ccToast=(msg,type="info",durationMs=3500)=>{
+  if(!_toastSetItems)return;
+  const id=Date.now()+Math.random();
+  _toastSetItems(prev=>[...prev,{id,msg,type}]);
+  setTimeout(()=>_toastSetItems(prev=>prev.filter(it=>it.id!==id)),durationMs);
+};
+
+/* ── localStorage user profile ── */
+const LS_USER_KEY="ccai_user_id";
+function getStoredUserId(){
+  try{return localStorage.getItem(LS_USER_KEY)||"default_user";}catch(_){return "default_user";}
+}
+function setStoredUserId(id){
+  try{localStorage.setItem(LS_USER_KEY,id||"default_user");}catch(_){}
+}
+
+/* ── Dynamic streak helper ── */
+function computeStreak(history){
+  if(!history.length)return 0;
+  const today=new Date().toISOString().slice(0,10);
+  const dates=[...new Set(history.map(s=>{
+    const d=s.date||"";
+    if(d==="Today"||d==="today")return today;
+    return d.slice(0,10)||today;
+  }))].sort().reverse();
+  let streak=0,cursor=new Date(today);
+  for(const d of dates){
+    const diff=Math.round((cursor-new Date(d))/(1000*60*60*24));
+    if(diff===0||(streak===0&&diff<=1)){streak++;cursor=new Date(d);}
+    else if(diff===1){streak++;cursor=new Date(d);}
+    else break;
+  }
+  return streak;
+}
+
+
+
 function Waveform({count=32,height=56,colors=[C.coral,C.yellow,C.mint],animated=true}){
   return e("div",{style:{display:"flex",alignItems:"center",gap:3,height}},
     Array.from({length:count}).map((_,i)=>{
@@ -124,38 +177,127 @@ function Waveform({count=32,height=56,colors=[C.coral,C.yellow,C.mint],animated=
 }
 
 const Label=({Icon,text})=>e("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:10}},e(Icon,{size:13,color:C.muted}),e("span",{style:{fontFamily:FM,fontSize:11.5,color:C.muted,textTransform:"uppercase",letterSpacing:0.6}},text));
+// Skeleton block for loading states
+const Sk=({w="100%",h=16,mb=8})=>e("div",{className:"cc-skeleton",style:{width:w,height:h,marginBottom:mb}});
+const SkCard=()=>e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:8}},e(Sk,{w:"60%",h:14,mb:10}),e(Sk,{w:"100%",h:10,mb:6}),e(Sk,{w:"80%",h:10}));
 const ChipRow=({options,value,onChange,accent,disabled})=>e("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},options.map(opt=>{const a=opt===value;return e("button",{key:opt,disabled,onClick:()=>onChange(opt),style:{padding:"7px 14px",borderRadius:999,cursor:disabled?"default":"pointer",fontFamily:FB,fontWeight:500,fontSize:13,border:`1px solid ${a?accent:C.border}`,background:a?`${accent}22`:"transparent",color:a?accent:C.muted,transition:"all .15s"}},opt);}));
 const Pill=({text,color,mono})=>e("span",{style:{fontFamily:mono?FM:FB,fontSize:12,fontWeight:500,color,border:`1px solid ${color}55`,borderRadius:999,padding:"5px 12px"}},text);
 const STitle=({text,Icon})=>e("div",{style:{display:"flex",alignItems:"center",gap:7,margin:"0 0 12px"}},e(Icon,{size:15,color:C.coral}),e("span",{style:{fontFamily:FD,fontWeight:600,fontSize:15,color:C.text}},text));
 
+/* ── DropZone — drag-and-drop file upload with preview ── */
+function DropZone({onFile,fileInputRef}){
+  const [dragOver,setDragOver]=useState(false);
+  const [pickedFile,setPickedFile]=useState(null);
+  const fmtSize=bytes=>{if(bytes<1024*1024)return`${(bytes/1024).toFixed(1)} KB`;return`${(bytes/(1024*1024)).toFixed(1)} MB`;};
+  const accept=(f)=>{if(!f)return;setPickedFile(f);onFile(f);};
+  return e("div",null,
+    e("div",{
+      tabIndex:0,role:"button","aria-label":"Upload audio file",
+      onClick:()=>fileInputRef.current?.click(),
+      onKeyDown:ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();fileInputRef.current?.click();}},
+      onDragOver:ev=>{ev.preventDefault();setDragOver(true);},
+      onDragLeave:()=>setDragOver(false),
+      onDrop:ev=>{ev.preventDefault();setDragOver(false);const f=ev.dataTransfer.files?.[0];if(f)accept(f);},
+      style:{border:`2px dashed ${dragOver?C.coral:C.border}`,borderRadius:16,padding:"34px 20px",textAlign:"center",cursor:"pointer",transition:"all .15s",background:dragOver?C.coralSoft:"transparent",outline:"none"}
+    },
+      e("input",{ref:fileInputRef,type:"file",accept:"audio/*,video/*",style:{display:"none"},onChange:ev=>{if(ev.target.files[0])accept(ev.target.files[0]);}}),
+      dragOver
+        ?e(Fragment,null,
+            e(SvgUpload,{size:26,color:C.coral}),
+            e("div",{style:{fontFamily:FD,fontWeight:600,color:C.coral,fontSize:15,marginTop:10}},"Drop to analyze")
+          )
+        :pickedFile
+          ?e(Fragment,null,
+              e(SvgCheck,{size:26,color:C.mint}),
+              e("div",{style:{fontFamily:FD,fontWeight:600,color:C.mint,fontSize:15,marginTop:10}},"File ready"),
+              e("div",{style:{fontFamily:FB,color:C.muted,fontSize:12.5,marginTop:4}}),
+              e("div",{style:{display:"inline-flex",alignItems:"center",gap:8,marginTop:6,background:C.mintSoft,border:`1px solid ${C.mint}55`,borderRadius:8,padding:"5px 12px"}},
+                e(SvgFileAudio,{size:13,color:C.mint}),
+                e("span",{style:{fontFamily:FM,fontSize:12,color:C.text}},pickedFile.name),
+                e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted}},fmtSize(pickedFile.size))
+              )
+            )
+          :e(Fragment,null,
+              e(SvgUpload,{size:26,color:C.coral}),
+              e("div",{style:{fontFamily:FD,fontWeight:600,color:C.text,fontSize:15,marginTop:10}},"Drop a recording here, or click to browse"),
+              e("div",{style:{fontFamily:FB,color:C.muted,fontSize:12.5,marginTop:4}},"MP3, WAV, or MP4 — up to 15 minutes")
+            )
+    )
+  );
+}
+
+/* ── ElapsedTimer — shows time since mount ── */
+function ElapsedTimer({color=C.muted}){
+  const [secs,setSecs]=useState(0);
+  useEffect(()=>{const iv=setInterval(()=>setSecs(s=>s+1),1000);return()=>clearInterval(iv);},[]);
+  const mm=String(Math.floor(secs/60)).padStart(2,"0"),ss=String(secs%60).padStart(2,"0");
+  return e("span",{style:{fontFamily:FM,fontSize:11.5,color}},`${mm}:${ss}`);
+}
+
 /* ── Header ── */
-function Header(){
+function Header({userId,onEditUser}){
   return e("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 28px",flexWrap:"wrap",gap:12}},
     e("div",{style:{display:"flex",alignItems:"center",gap:10}},
       e("div",{style:{width:34,height:34,borderRadius:10,background:C.coral,display:"flex",alignItems:"center",justifyContent:"center"}},e(SvgMic,{size:18,color:C.bg})),
       e("span",{style:{fontFamily:FD,fontWeight:700,fontSize:19,color:C.text,letterSpacing:-0.3}},"CommCoach AI")
     ),
-    e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,border:`1px solid ${C.border}`,borderRadius:999,padding:"5px 12px",display:"flex",alignItems:"center",gap:6}},e(SvgSparkle,{size:12,color:C.mint}),"Powered by Sarvam AI")
+    e("div",{style:{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}},
+      e("button",{onClick:onEditUser,title:"Change user profile",style:{display:"flex",alignItems:"center",gap:6,fontFamily:FM,fontSize:11,color:C.muted,background:"transparent",border:`1px solid ${C.border}`,borderRadius:999,padding:"5px 12px",cursor:"pointer"}},
+        e("span",{style:{width:7,height:7,borderRadius:"50%",background:C.mint,display:"inline-block"}}),
+        userId||"default_user"
+      ),
+      e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,border:`1px solid ${C.border}`,borderRadius:999,padding:"5px 12px",display:"flex",alignItems:"center",gap:6}},e(SvgSparkle,{size:12,color:C.mint}),"Powered by Sarvam AI")
+    )
   );
 }
 
 /* ── Stepper ── */
-function Stepper({page,setPage}){
+function Stepper({page,setPage,interviewPhase,uploading}){
   const steps=[
     {n:1,label:"Assessment",Icon:SvgUpload},
     {n:2,label:"Feedback",Icon:SvgFileAudio},
     {n:3,label:"Mock Interview",Icon:SvgUsers},
     {n:4,label:"Dashboard",Icon:SvgTrend},
   ];
-  return e("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"6px 20px 28px",flexWrap:"wrap"}},
-    steps.map((s,idx)=>e(Fragment,{key:s.n},
-      e("button",{onClick:()=>setPage(s.n),style:{display:"flex",alignItems:"center",gap:8,padding:"9px 14px 9px 10px",borderRadius:999,border:`1.5px solid ${page===s.n?C.coral:C.border}`,background:page===s.n?C.coralSoft:"transparent",color:page===s.n?C.coral:C.muted,cursor:"pointer",fontFamily:FB,transition:"all .18s"}},
-        e("span",{style:{fontFamily:FM,fontSize:11,width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:page===s.n?C.coral:"transparent",color:page===s.n?C.bg:C.muted,border:page===s.n?"none":`1px solid ${C.border}`}},s.n),
-        e(s.Icon,{size:13}),
-        e("span",{style:{fontFamily:FD,fontWeight:600,fontSize:13}},s.label)
-      ),
-      idx<steps.length-1&&e("div",{style:{display:"flex",gap:2,width:18}},[0,1,2].map(i=>e("div",{key:i,style:{width:4,height:4+(i%2)*3,borderRadius:2,background:C.border,alignSelf:"center"}})))
-    ))
+  const [confirmNav,setConfirmNav]=useState(null);// target page number pending confirm
+
+  const handleClick=(target)=>{
+    if(target===page)return;
+    // Warn if leaving an in-progress interview
+    if(page===3&&interviewPhase==="interview"){setConfirmNav(target);return;}
+    // Warn if leaving mid-analysis
+    if(page===1&&uploading){setConfirmNav(target);return;}
+    setPage(target);
+  };
+
+  return e(Fragment,null,
+    /* Nav-away confirmation dialog */
+    confirmNav!==null&&e("div",{role:"dialog","aria-modal":"true","aria-labelledby":"navdlg-title",style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      e("div",{className:"cc-fade",style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:28,maxWidth:380,width:"100%",textAlign:"center"}},
+        e("div",{id:"navdlg-title",style:{fontFamily:FD,fontWeight:700,fontSize:17,color:C.text,marginBottom:10}},
+          page===3?"Leave this interview?":"Leave analysis in progress?"
+        ),
+        e("div",{style:{fontFamily:FB,fontSize:13.5,color:C.muted,marginBottom:24,lineHeight:1.6}},
+          page===3
+            ?"Your answers will be saved — you can return to this interview by clicking Mock Interview again."
+            :"Your current analysis will be cancelled."
+        ),
+        e("div",{style:{display:"flex",gap:10,justifyContent:"center"}},
+          e("button",{onClick:()=>{setPage(confirmNav);setConfirmNav(null);},style:pBtn},"Leave"),
+          e("button",{onClick:()=>setConfirmNav(null),style:sBtn},"Stay")
+        )
+      )
+    ),
+    e("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"6px 20px 28px",flexWrap:"wrap"}},
+      steps.map((s,stepIdx)=>e(Fragment,{key:s.n},
+        e("button",{onClick:()=>handleClick(s.n),"aria-current":page===s.n?"page":undefined,style:{display:"flex",alignItems:"center",gap:8,padding:"9px 14px 9px 10px",borderRadius:999,border:`1.5px solid ${page===s.n?C.coral:C.border}`,background:page===s.n?C.coralSoft:"transparent",color:page===s.n?C.coral:C.muted,cursor:"pointer",fontFamily:FB,transition:"all .18s"}},
+          e("span",{style:{fontFamily:FM,fontSize:11,width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:page===s.n?C.coral:"transparent",color:page===s.n?C.bg:C.muted,border:page===s.n?"none":`1px solid ${C.border}`}},s.n),
+          e(s.Icon,{size:13}),
+          e("span",{style:{fontFamily:FD,fontWeight:600,fontSize:13}},s.label)
+        ),
+        stepIdx<steps.length-1&&e("div",{style:{display:"flex",gap:2,width:18}},[0,1,2].map(i=>e("div",{key:i,style:{width:4,height:4+(i%2)*3,borderRadius:2,background:C.border,alignSelf:"center"}})))
+      ))
+    )
   );
 }
 
@@ -208,7 +350,7 @@ function ResumeUpload({resume,setResume}){
 }
 
 /* ── PAGE 1: AssessmentPage ── */
-function AssessmentPage({onDone,resume,setResume}){
+function AssessmentPage({onDone,resume,setResume,onUploadingChange,userId="default_user"}){
   const [langMode,setLangMode]=useState("auto");
   const [manualLang,setManualLang]=useState("English");
   const [interviewType,setInterviewType]=useState("HR");
@@ -262,12 +404,12 @@ function AssessmentPage({onDone,resume,setResume}){
   };
 
   const runAnalysis=async(audioFile,filename)=>{
-    setApiError(null);setUploading(true);startProgressAnimation();
+    setApiError(null);setUploading(true);if(onUploadingChange)onUploadingChange(true);startProgressAnimation();
     const lang=langMode==="manual"?manualLang:"English";
     try{
       const form=new FormData();
       form.append("file",audioFile,filename||"recording.webm");
-      form.append("user_id","default_user");
+      form.append("user_id",userId);
       if(interviewType)form.append("interview_topic",interviewType);
       const resp=await fetch(`${API_URL}/analyze`,{method:"POST",body:form});
       if(!resp.ok){const err=await resp.text();throw new Error(`Server error ${resp.status}: ${err}`);}
@@ -284,21 +426,21 @@ function AssessmentPage({onDone,resume,setResume}){
       const transcriptTokens=(data.transcript_tokens&&data.transcript_tokens.length>0)?data.transcript_tokens:_tokenizeFrontend(data.transcript||"",data.session_report);
       setTimeout(()=>onDone({language:data.detected_language||lang,interviewType,practiceMode,apiResponse:data,transcriptTokens}),400);
     }catch(err){
-      stopProgressAnimation();setUploading(false);setApiError(err.message||"Analysis failed — please try again.");
+      stopProgressAnimation();setUploading(false);if(onUploadingChange)onUploadingChange(false);setApiError(err.message||"Analysis failed — please try again.");
     }
   };
 
   const startSampleAnalysis=async()=>{
-    setApiError(null);setUploading(true);startProgressAnimation();
+    setApiError(null);setUploading(true);if(onUploadingChange)onUploadingChange(true);startProgressAnimation();
     try{
-      const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:"default_user",transcript:MOCK_TRANSCRIPT_TEXT,interview_topic:interviewType})});
+      const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,transcript:MOCK_TRANSCRIPT_TEXT,interview_topic:interviewType})});
       if(!resp.ok)throw new Error(`Server error ${resp.status}`);
       const data=await resp.json();
       stopProgressAnimation();
       const transcriptTokens=(data.transcript_tokens&&data.transcript_tokens.length>0)?data.transcript_tokens:_tokenizeFrontend(data.transcript||MOCK_TRANSCRIPT_TEXT,data.session_report);
       const lang=langMode==="manual"?manualLang:"English";
       setTimeout(()=>onDone({language:lang,interviewType,practiceMode,apiResponse:data,transcriptTokens}),400);
-    }catch(err){stopProgressAnimation();setUploading(false);setApiError(err.message||"Sample analysis failed.");}
+    }catch(err){stopProgressAnimation();setUploading(false);if(onUploadingChange)onUploadingChange(false);setApiError(err.message||"Sample analysis failed.");}
   };
 
   const startRecording=async()=>{
@@ -356,17 +498,7 @@ function AssessmentPage({onDone,resume,setResume}){
         ),
         audioSource==="upload"
           ?e(Fragment,null,
-              e("div",{
-                onClick:()=>fileInputRef.current?.click(),
-                onMouseEnter:ev=>ev.currentTarget.style.borderColor=C.coral,
-                onMouseLeave:ev=>ev.currentTarget.style.borderColor=C.border,
-                style:{border:`2px dashed ${C.border}`,borderRadius:16,padding:"34px 20px",textAlign:"center",cursor:"pointer",transition:"all .15s"}
-              },
-                e("input",{ref:fileInputRef,type:"file",accept:"audio/*,video/*",style:{display:"none"},onChange:ev=>{if(ev.target.files[0])runAnalysis(ev.target.files[0],ev.target.files[0].name);}}),
-                e(SvgUpload,{size:26,color:C.coral}),
-                e("div",{style:{fontFamily:FD,fontWeight:600,color:C.text,fontSize:15,marginTop:10}},"Drop a recording here, or click to browse"),
-                e("div",{style:{fontFamily:FB,color:C.muted,fontSize:12.5,marginTop:4}},"MP3, WAV, or MP4 — up to 15 minutes")
-              ),
+              e(DropZone,{onFile:(f)=>runAnalysis(f,f.name),fileInputRef}),
               e("div",{style:{display:"flex",alignItems:"center",gap:12,margin:"20px 0"}},e("div",{style:{flex:1,height:1,background:C.border}}),e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted}},"OR"),e("div",{style:{flex:1,height:1,background:C.border}})),
               e("button",{onClick:startSampleAnalysis,style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"transparent",border:`1.5px solid ${C.mint}`,color:C.mint,fontFamily:FD,fontWeight:600,fontSize:14,borderRadius:12,padding:"13px 20px",cursor:"pointer"}},e(SvgPlay,{size:15,color:C.mint}),"Try a sample recording")
             )
@@ -512,19 +644,14 @@ function generateQuestions(type,resume,useResume){
   return base.slice(0,4);
 }
 
-function MockInterviewPage({resume,defaultType,onFinish}){
-  const [phase,setPhase]=useState("setup");
-  const [interviewType,setInterviewType]=useState(defaultType||"HR");
-  const [useResume,setUseResume]=useState(!!resume);
-  const [questions,setQuestions]=useState([]);
-  const [idx,setIdx]=useState(0);
-  const [answer,setAnswer]=useState("");
-  const [rawLog,setRawLog]=useState([]);
-  const [scoredLog,setScoredLog]=useState([]);
-  const [evalProgress,setEvalProgress]=useState(0);
-  const [dbSessionId,setDbSessionId]=useState(null);
-  const [sessionId,setSessionId]=useState(null);
-  const [setupErr,setSetupErr]=useState(null);
+function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
+  // lifted state — persists across tab changes
+  phase,setPhase,interviewType,setInterviewType,useResume,setUseResume,
+  questions,setQuestions,idx,setIdx,answer,setAnswer,
+  rawLog,setRawLog,scoredLog,setScoredLog,evalProgress,setEvalProgress,
+  dbSessionId,setDbSessionId,sessionId,setSessionId,setupErr,setSetupErr,
+  hidden
+}){
 
   /* ── Audio recording state ── */
   const [answerMode,setAnswerMode]=useState("text");
@@ -562,6 +689,9 @@ function MockInterviewPage({resume,defaultType,onFinish}){
   const resetRec=()=>{clearInterval(timerRef.current);streamRef.current?.getTracks().forEach(t=>t.stop());setIsRecording(false);setRecordSeconds(0);recordSecondsRef.current=0;recordedBlobRef.current=null;setRecordedLabel(null);setMicError(null);};
   useEffect(()=>()=>{clearInterval(timerRef.current);streamRef.current?.getTracks().forEach(t=>t.stop());},[]);
 
+  // Sync interviewType from parent's defaultType when setup phase opens fresh
+  useEffect(()=>{if(phase==="setup"&&defaultType&&!rawLog.length)setInterviewType(defaultType);},[defaultType]);
+
   const start=async()=>{
     setSetupErr(null);
     const resumeText=(useResume&&resume)?(resume.text||resume.summary||""):null;
@@ -569,7 +699,7 @@ function MockInterviewPage({resume,defaultType,onFinish}){
     const qs=localBank.slice(0,TOTAL_QUESTIONS);
     let sid=null;
     try{
-      const resp=await fetch(`${API_URL}/interview/start`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:"default_user",topic:interviewType,resume_text:resumeText})});
+      const resp=await fetch(`${API_URL}/interview/start`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,topic:interviewType,resume_text:resumeText})});
       if(resp.ok){
         const data=await resp.json();
         setDbSessionId(data.db_session_id||null);
@@ -602,7 +732,7 @@ function MockInterviewPage({resume,defaultType,onFinish}){
         if(sessionId&&audioBlob){
           /* Audio path — STT on server, real relevancy vs actual question */
           const form=new FormData();
-          form.append("session_id",sessionId);form.append("user_id","default_user");
+          form.append("session_id",sessionId);form.append("user_id",userId);
           form.append("file",audioBlob,"answer.webm");
           const resp=await fetch(`${API_URL}/interview/answer`,{method:"POST",body:form});
           if(!resp.ok)throw new Error(`API ${resp.status}`);
@@ -610,14 +740,14 @@ function MockInterviewPage({resume,defaultType,onFinish}){
         }else if(sessionId){
           /* Text path — use /interview/answer for real relevancy scoring */
           const form=new FormData();
-          form.append("session_id",sessionId);form.append("user_id","default_user");
+          form.append("session_id",sessionId);form.append("user_id",userId);
           form.append("transcript",ans);
           const resp=await fetch(`${API_URL}/interview/answer`,{method:"POST",body:form});
           if(!resp.ok)throw new Error(`API ${resp.status}`);
           data=await resp.json();
         }else{
           /* Fallback: no session — use /analyze/text */
-          const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:"default_user",transcript:ans,interview_topic:interviewType})});
+          const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,transcript:ans,interview_topic:interviewType})});
           if(!resp.ok)throw new Error(`API ${resp.status}`);
           data=await resp.json();
         }
@@ -669,8 +799,11 @@ function MockInterviewPage({resume,defaultType,onFinish}){
     setPhase("setup");
   };
 
+  /* Wrap entire page in a visibility shell — hidden prop keeps state alive without unmounting */
+  const wrapHidden=(child)=>e("div",{style:{display:hidden?"none":"block"}},child);
+
   /* Setup phase */
-  if(phase==="setup")return e("div",{className:"cc-fade",style:{maxWidth:620,margin:"0 auto",padding:"0 20px 60px"}},
+  if(phase==="setup")return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:620,margin:"0 auto",padding:"0 20px 60px"}},
     e(STitle,{text:"Set up your mock interview",Icon:SvgUsers}),
     setupErr&&e("div",{style:{background:C.coralSoft,border:`1px solid ${C.coral}55`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontFamily:FB,fontSize:13,color:C.text}},setupErr),
     e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:22}},
@@ -685,17 +818,18 @@ function MockInterviewPage({resume,defaultType,onFinish}){
       ),
       e("button",{onClick:start,style:{...pBtn,width:"100%",marginTop:18}},"Start interview ",e(SvgArrow,{size:15,color:C.bg}))
     )
-  );
+  ));
 
   /* Interview phase */
   if(phase==="interview"){
     const total=questions.length;
     const progressPct=Math.round((idx/total)*100);
-    return e("div",{className:"cc-fade",style:{maxWidth:680,margin:"0 auto",padding:"0 20px 60px"}},
+    return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:680,margin:"0 auto",padding:"0 20px 60px"}},
       e("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}},
         e(Pill,{text:interviewType,color:C.mint}),
         e(Pill,{text:`Q ${idx+1} of ${total}`,color:C.muted,mono:true}),
         e("div",{style:{flex:1,minWidth:100}}),
+        e(ElapsedTimer,{color:C.muted}),
         rawLog.length>0&&e("span",{style:{fontFamily:FM,fontSize:11.5,color:C.muted}},`${rawLog.length} answered`)
       ),
       e("div",{style:{height:4,borderRadius:2,background:C.bg2,overflow:"hidden",marginBottom:18}},
@@ -754,11 +888,11 @@ function MockInterviewPage({resume,defaultType,onFinish}){
           e("span",{style:{fontFamily:FM,fontSize:11.5,color:C.mint,flexShrink:0}},"answered")
         ))
       )
-    );
+    ));
   }
 
   /* Evaluating phase */
-  if(phase==="evaluating")return e("div",{className:"cc-fade",style:{maxWidth:580,margin:"60px auto",padding:"0 20px",textAlign:"center"}},
+  if(phase==="evaluating")return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:580,margin:"60px auto",padding:"0 20px",textAlign:"center"}},
     e("div",{style:{fontFamily:FD,fontWeight:700,fontSize:22,color:C.text,marginBottom:10}},"Evaluating your answers…"),
     e("div",{style:{fontFamily:FB,fontSize:13.5,color:C.muted,marginBottom:28}},`Scoring all ${rawLog.length} answers. This takes a few seconds.`),
     e(Waveform,{count:28,height:44,animated:true}),
@@ -768,7 +902,7 @@ function MockInterviewPage({resume,defaultType,onFinish}){
     e("div",{style:{fontFamily:FM,fontSize:12,color:C.muted}},
       evalProgress<100?`Evaluating Q${Math.ceil((evalProgress/100)*rawLog.length)} of ${rawLog.length}…`:"Finalising…"
     )
-  );
+  ));
 
   /* Results phase */
   const avgScore=Math.round(scoredLog.reduce((a,e2)=>a+e2.score,0)/Math.max(scoredLog.length,1));
@@ -789,7 +923,7 @@ function MockInterviewPage({resume,defaultType,onFinish}){
     {label:"Week 3 — Consolidation",focus:"Full interview simulation",tasks:[{title:"Full mock interview",desc:"Complete another CommCoach mock interview and compare scores to today's baseline."},allDrills[2]||{title:"Pace control",desc:"Re-record your fastest answer at a deliberate 130 WPM. Pause at every comma."},{title:"Confidence build",desc:"Answer 2 questions in front of a mirror or camera. Hold eye contact with your reflection."}]},
   ];
 
-  return e("div",{className:"cc-fade",style:{maxWidth:760,margin:"0 auto",padding:"0 20px 60px"}},
+  return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:760,margin:"0 auto",padding:"0 20px 60px"}},
     e(STitle,{text:"Interview report",Icon:SvgCheck}),
     /* Overall score */
     e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:22,display:"flex",alignItems:"center",gap:20,marginBottom:20,flexWrap:"wrap"}},
@@ -852,7 +986,7 @@ function MockInterviewPage({resume,defaultType,onFinish}){
       e("button",{onClick:finishInterview,style:pBtn},"Save & view dashboard ",e(SvgArrow,{size:15,color:C.bg})),
       e("button",{onClick:()=>setPhase("setup"),style:sBtn},"Start another interview")
     )
-  );
+  ));
 }
 
 /* ── PAGE 4: DashboardPage ── */
@@ -878,7 +1012,7 @@ function computeBadges(history,interviewSessions){
   return badges;
 }
 
-function DashboardPage({history,interviewSessions,onNewSession,onReset}){
+function DashboardPage({history,interviewSessions,onNewSession,onReset,userId="default_user",loading=false}){
   const [visible,setVisible]=useState({fluency:true,grammar:true,pronunciation:true,confidence:true});
   const [confirmReset,setConfirmReset]=useState(false);
   const [resetting,setResetting]=useState(false);
@@ -891,16 +1025,27 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset}){
 
   const handleReset=async()=>{
     setResetting(true);
-    try{await fetch(`${API_URL}/sessions/reset/default_user`,{method:"DELETE"});}catch(_){}
+    try{await fetch(`${API_URL}/sessions/reset/${userId}`,{method:"DELETE"});}catch(_){}
     setResetting(false);setConfirmReset(false);
     if(onReset)onReset();
   };
 
+  /* Loading skeleton */
+  if(loading)return e("div",{className:"cc-fade",style:{maxWidth:900,margin:"0 auto",padding:"0 20px 60px"}},
+    e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}},[1,2,3,4,5,6].map(i=>e("div",{key:i,style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:16}},e(Sk,{w:"40%",h:10,mb:12}),e(Sk,{w:"60%",h:22})))),
+    e("div",{style:{marginBottom:8}},e(Sk,{h:180})),
+    e(SkCard,null),e(SkCard,null),e(SkCard,null)
+  );
+
   /* Empty state */
   if(n===0&&interviewSessions.length===0)return e("div",{className:"cc-fade",style:{maxWidth:600,margin:"80px auto",padding:"0 20px",textAlign:"center"}},
-    e("div",{style:{fontFamily:FD,fontWeight:700,fontSize:26,color:C.text,marginBottom:12}},"No sessions yet"),
-    e("div",{style:{fontFamily:FB,fontSize:14,color:C.muted,marginBottom:28,lineHeight:1.7}},"Complete an Assessment or Mock Interview to see your progress here."),
-    e("button",{onClick:onNewSession,style:pBtn},e(SvgMic,{size:14,color:C.bg})," Start your first session")
+    e("div",{style:{width:64,height:64,borderRadius:20,background:C.coralSoft,border:`1px solid ${C.coral}55`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}},e(SvgMic,{size:28,color:C.coral})),
+    e("h2",{style:{fontFamily:FD,fontWeight:700,fontSize:26,color:C.text,marginBottom:12}},"No sessions yet"),
+    e("p",{style:{fontFamily:FB,fontSize:14,color:C.muted,marginBottom:28,lineHeight:1.7,maxWidth:400,margin:"0 auto 28px"}},"Complete an Assessment or a Mock Interview to start tracking your communication progress here."),
+    e("div",{style:{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}},
+      e("button",{onClick:onNewSession,style:pBtn},e(SvgMic,{size:14,color:C.bg})," Analyze audio"),
+      e("button",{onClick:()=>{/* signal to go to interview tab */if(typeof onNewSession==="function")onNewSession();},style:sBtn},e(SvgUsers,{size:14})," Mock interview")
+    )
   );
 
   const byType=INTERVIEW_TYPES.map(t=>{const rows=interviewSessions.filter(s=>s.type===t);return{type:t,avgScore:rows.length?Math.round(rows.reduce((a,s)=>a+s.avgScore,0)/rows.length):0};}).filter(r=>r.avgScore>0);
@@ -908,9 +1053,9 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset}){
 
   return e("div",{className:"cc-fade",style:{maxWidth:900,margin:"0 auto",padding:"0 20px 60px"}},
     /* Confirm reset modal */
-    confirmReset&&e("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    confirmReset&&e("div",{role:"dialog","aria-modal":"true","aria-labelledby":"rst-dlg-title",onKeyDown:ev=>ev.key==="Escape"&&setConfirmReset(false),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       e("div",{className:"cc-fade",style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:28,maxWidth:400,width:"100%",textAlign:"center"}},
-        e("div",{style:{fontFamily:FD,fontWeight:700,fontSize:18,color:C.text,marginBottom:10}},"Reset all session history?"),
+        e("div",{id:"rst-dlg-title",style:{fontFamily:FD,fontWeight:700,fontSize:18,color:C.text,marginBottom:10}},"Reset all session history?"),
         e("div",{style:{fontFamily:FB,fontSize:13.5,color:C.muted,marginBottom:24,lineHeight:1.6}},"This permanently deletes all your sessions, scores, and progress from the database. Your current page session will also be cleared. This cannot be undone."),
         e("div",{style:{display:"flex",gap:10,justifyContent:"center"}},
           e("button",{onClick:handleReset,disabled:resetting,style:{...pBtn,background:C.coral,opacity:resetting?0.6:1}},resetting?"Resetting…":"Yes, reset everything"),
@@ -929,7 +1074,7 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset}){
     /* Stat cards */
     e("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}},
       e(StatCard,{Icon:SvgFileAudio,label:"Sessions",value:n,color:C.coral}),
-      e(StatCard,{Icon:SvgFlame,label:"Streak",value:"6 days",color:C.yellow}),
+      e(StatCard,{Icon:SvgFlame,label:"Streak",value:`${computeStreak([...history,...interviewSessions.map(s=>({date:s.date||"Today"}))])} days`,color:C.yellow}),
       e(StatCard,{Icon:SvgTrend,label:"Avg score",value:avgOverall||"—",color:C.mint}),
       e(StatCard,{Icon:SvgBook,label:"Avg grammar",value:avgGrammar||"—",color:C.purple}),
       e(StatCard,{Icon:SvgUsers,label:"Mock interviews",value:interviewSessions.length,color:C.coral}),
@@ -1011,10 +1156,37 @@ function CommCoachApp(){
   const [history,setHistory]=useState([]);
   const [interviewSessions,setInterviewSessions]=useState([]);
   const [currentSession,setCurrentSession]=useState(null);
+  const [assessmentUploading,setAssessmentUploading]=useState(false);
+  const [sessionsLoading,setSessionsLoading]=useState(true);
+  // Persistent user identity via localStorage
+  const [userId,setUserId]=useState(getStoredUserId);
+  const [editingUser,setEditingUser]=useState(false);
+  const [userDraft,setUserDraft]=useState("");
+
+  /* ── Lifted MockInterviewPage state — survives tab changes ── */
+  const [ivPhase,setIvPhase]=useState("setup");
+  const [ivType,setIvType]=useState("HR");
+  const [ivUseResume,setIvUseResume]=useState(false);
+  const [ivQuestions,setIvQuestions]=useState([]);
+  const [ivIdx,setIvIdx]=useState(0);
+  const [ivAnswer,setIvAnswer]=useState("");
+  const [ivRawLog,setIvRawLog]=useState([]);
+  const [ivScoredLog,setIvScoredLog]=useState([]);
+  const [ivEvalProgress,setIvEvalProgress]=useState(0);
+  const [ivDbSessionId,setIvDbSessionId]=useState(null);
+  const [ivSessionId,setIvSessionId]=useState(null);
+  const [ivSetupErr,setIvSetupErr]=useState(null);
+
+  const saveUserId=(newId)=>{
+    const clean=(newId||"").trim()||"default_user";
+    setUserId(clean);setStoredUserId(clean);setEditingUser(false);
+    window.ccToast("User profile updated","success");
+  };
 
   /* Load existing sessions from DB on mount */
   useEffect(()=>{
-    fetch(`${API_URL}/sessions/default_user`)
+    setSessionsLoading(true);
+    fetch(`${API_URL}/sessions/${userId}`)
       .then(r=>r.ok?r.json():null)
       .then(d=>{
         if(!d)return;
@@ -1033,8 +1205,9 @@ function CommCoachApp(){
           fillers:s.fillers||0,
         })));
       })
-      .catch(()=>{});
-  },[]);
+      .catch(()=>{})
+      .finally(()=>setSessionsLoading(false));
+  },[userId]);
 
   /* Hide splash screen */
   useEffect(()=>{
@@ -1044,6 +1217,7 @@ function CommCoachApp(){
   },[]);
 
   const handleAssessmentDone=({language,interviewType,practiceMode,apiResponse,transcriptTokens})=>{
+    setAssessmentUploading(false);
     let feedback,tokens;
     if(apiResponse&&apiResponse.feedback){
       feedback=apiResponse.feedback;tokens=transcriptTokens||[];
@@ -1075,18 +1249,44 @@ function CommCoachApp(){
     setPage(4);
   };
 
-  const handleReset=()=>{setHistory([]);setInterviewSessions([]);setCurrentSession(null);};
+  const handleReset=()=>{setHistory([]);setInterviewSessions([]);setCurrentSession(null);setIvPhase("setup");setIvRawLog([]);setIvScoredLog([]);};
+
+  /* User ID edit banner */
+  const userBanner=editingUser&&e("div",{style:{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 28px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
+    e("span",{style:{fontFamily:FM,fontSize:12,color:C.muted}},"User ID:"),
+    e("input",{className:"cc-input",value:userDraft,onChange:ev=>setUserDraft(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")saveUserId(userDraft);if(ev.key==="Escape")setEditingUser(false);},style:{maxWidth:220,padding:"6px 10px",fontSize:13},autoFocus:true}),
+    e("button",{onClick:()=>saveUserId(userDraft),style:{...pBtn,padding:"7px 16px",fontSize:13}},"Save"),
+    e("button",{onClick:()=>setEditingUser(false),style:{...sBtn,padding:"7px 14px",fontSize:13}},"Cancel")
+  );
 
   return e("div",{style:{background:C.bg,minHeight:"100vh",fontFamily:FB,position:"relative",overflow:"hidden"}},
     e("div",{className:"cc-blob",style:{position:"absolute",top:-80,left:-80,width:280,height:280,borderRadius:"50%",background:C.coral,opacity:0.10,filter:"blur(60px)",animation:"floatBlob 9s ease-in-out infinite"}}),
     e("div",{className:"cc-blob",style:{position:"absolute",bottom:-100,right:-60,width:320,height:320,borderRadius:"50%",background:C.mint,opacity:0.08,filter:"blur(70px)",animation:"floatBlob 11s ease-in-out infinite"}}),
     e("div",{style:{position:"relative",zIndex:1}},
-      e(Header,null),
-      e(Stepper,{page,setPage}),
-      page===1&&e(AssessmentPage,{onDone:handleAssessmentDone,resume,setResume}),
+      e(Header,{userId,onEditUser:()=>{setUserDraft(userId);setEditingUser(true);}}),
+      userBanner,
+      e(Stepper,{page,setPage,interviewPhase:ivPhase,uploading:assessmentUploading}),
+      page===1&&e(AssessmentPage,{onDone:handleAssessmentDone,resume,setResume,onUploadingChange:setAssessmentUploading,userId}),
       page===2&&e(FeedbackPage,{session:currentSession,onStartInterview:()=>setPage(3),onViewDashboard:()=>setPage(4),onRetry:()=>setPage(1)}),
-      page===3&&e(MockInterviewPage,{resume,defaultType:currentSession?.interviewType,onFinish:handleInterviewFinish}),
-      page===4&&e(DashboardPage,{history,interviewSessions,onNewSession:()=>setPage(1),onReset:handleReset})
+      /* MockInterviewPage is always mounted to preserve state across tab changes */
+      e(MockInterviewPage,{
+        resume,defaultType:currentSession?.interviewType,onFinish:handleInterviewFinish,
+        hidden:page!==3,userId,
+        phase:ivPhase,setPhase:setIvPhase,
+        interviewType:ivType,setInterviewType:setIvType,
+        useResume:ivUseResume,setUseResume:setIvUseResume,
+        questions:ivQuestions,setQuestions:setIvQuestions,
+        idx:ivIdx,setIdx:setIvIdx,
+        answer:ivAnswer,setAnswer:setIvAnswer,
+        rawLog:ivRawLog,setRawLog:setIvRawLog,
+        scoredLog:ivScoredLog,setScoredLog:setIvScoredLog,
+        evalProgress:ivEvalProgress,setEvalProgress:setIvEvalProgress,
+        dbSessionId:ivDbSessionId,setDbSessionId:setIvDbSessionId,
+        sessionId:ivSessionId,setSessionId:setIvSessionId,
+        setupErr:ivSetupErr,setSetupErr:setIvSetupErr,
+      }),
+      page===4&&e(DashboardPage,{history,interviewSessions,onNewSession:()=>setPage(1),onReset:handleReset,userId,loading:sessionsLoading}),
+      e(ToastContainer,null)
     )
   );
 }
