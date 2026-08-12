@@ -240,26 +240,22 @@ def render_interview_tab(user_id):
 
     # Start interview
     if not st.session_state.interview_active:
-        col1, col2 = st.columns(2)
-        with col1:
-            topic = st.text_input(
-                "Interview topic", value="general software engineering", key="interview_topic"
-            )
-        with col2:
-            resume_file = st.file_uploader(
-                "Upload your resume (optional, PDF)", type=["pdf"], key="resume_pdf"
-            )
-            resume = None
-            if resume_file is not None:
-                resume = _extract_pdf_text(resume_file)
-                if resume:
-                    st.success(f"Resume loaded — {len(resume.split())} words extracted.")
-                else:
-                    st.warning("Could not extract text from this PDF.")
+        st.markdown("### 📄 Resume Upload")
+        resume_file = st.file_uploader("Upload your resume (PDF)", type=["pdf"], key="resume_pdf")
+        resume = None
+        if resume_file is not None:
+            resume = _extract_pdf_text(resume_file)
+            if resume:
+                st.success(f"Resume loaded — {len(resume.split())} words extracted.")
+            else:
+                st.warning("Could not extract text from this PDF.")
 
         if st.button("Start Interview", key="start_interview_btn"):
-            with st.spinner("Starting interview…"):
-                result = start_interview(user_id, topic, resume or None)
+            if not resume:
+                st.error("Resume upload is mandatory. Please upload your resume first.")
+            else:
+                with st.spinner("Starting interview…"):
+                    result = start_interview(user_id, "Mock Interview", resume)
             if "error" in result:
                 st.error(f"Error: {result['error']}")
             else:

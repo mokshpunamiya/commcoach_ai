@@ -321,7 +321,7 @@ function ResumeUpload({resume,setResume}){
     setParsing(false);
   };
   return e("div",{style:{marginBottom:22}},
-    e(Label,{Icon:SvgFile,text:"Resume (optional)"}),
+    e(Label,{Icon:SvgFile,text:"Resume"}),
     !resume&&!parsing&&e("div",{
       onClick:()=>ref.current?.click(),
       onMouseEnter:ev=>ev.currentTarget.style.borderColor=C.purple,
@@ -404,6 +404,10 @@ function AssessmentPage({onDone,resume,setResume,onUploadingChange,userId="defau
   };
 
   const runAnalysis=async(audioFile,filename)=>{
+    if(!resume){
+      setApiError("Resume upload is mandatory. Please upload your resume first.");
+      return;
+    }
     setApiError(null);setUploading(true);if(onUploadingChange)onUploadingChange(true);startProgressAnimation();
     const lang=langMode==="manual"?manualLang:"English";
     try{
@@ -431,6 +435,10 @@ function AssessmentPage({onDone,resume,setResume,onUploadingChange,userId="defau
   };
 
   const startSampleAnalysis=async()=>{
+    if(!resume){
+      setApiError("Resume upload is mandatory. Please upload your resume first.");
+      return;
+    }
     setApiError(null);setUploading(true);if(onUploadingChange)onUploadingChange(true);startProgressAnimation();
     try{
       const resp=await fetch(`${API_URL}/analyze/text`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,transcript:MOCK_TRANSCRIPT_TEXT,interview_topic:interviewType})});
@@ -444,6 +452,10 @@ function AssessmentPage({onDone,resume,setResume,onUploadingChange,userId="defau
   };
 
   const startRecording=async()=>{
+    if(!resume){
+      setMicError("Resume upload is mandatory. Please upload your resume first.");
+      return;
+    }
     setMicError(null);
     if(!navigator.mediaDevices||!window.MediaRecorder){setMicError("Live recording isn't supported in this browser. Try uploading a file instead.");return;}
     try{
@@ -483,8 +495,6 @@ function AssessmentPage({onDone,resume,setResume,onUploadingChange,userId="defau
           ?e("div",{style:{fontFamily:FB,fontSize:12,color:C.muted,marginTop:8}},"We'll detect it from your audio — English, Hindi, Kannada, Tamil, Telugu, and code-mixed speech supported.")
           :e(ChipRow,{options:LANGUAGES,value:manualLang,onChange:setManualLang,accent:C.coral,disabled:uploading})
       ),
-      /* Interview type */
-      e("div",{style:{marginBottom:18}},e(Label,{Icon:SvgBriefcase,text:"Interview type"}),e(ChipRow,{options:INTERVIEW_TYPES,value:interviewType,onChange:setInterviewType,accent:C.mint,disabled:uploading})),
       /* Practice mode */
       e("div",{style:{marginBottom:18}},e(Label,{Icon:SvgGauge,text:"Practice mode"}),e(ChipRow,{options:PRACTICE_MODES,value:practiceMode,onChange:setPracticeMode,accent:C.purple,disabled:uploading})),
       /* Resume */
@@ -634,7 +644,145 @@ function FeedbackPage({session,onStartInterview,onViewDashboard,onRetry}){
   );
 }
 
-/* ── PAGE 3: MockInterviewPage ── */
+/* ── helpers for enhanced evaluation output ── */
+const getExpectedAnswer = (q) => {
+  const query = q.toLowerCase();
+  if (query.includes("dependency injection")) {
+    return "Dependency Injection is a design pattern where dependencies are provided to a class from outside instead of being created internally. It improves maintainability, testability, and loose coupling.";
+  }
+  if (query.includes("yourself") || query.includes("introduce")) {
+    return "A strong introduction using the Present-Past-Future framework: outline your current role and recent key achievements, mention how your past experience prepared you for this, and express why you are excited about this specific opportunity.";
+  }
+  if (query.includes("technical project") || query.includes("worked with") || query.includes("project you're most proud")) {
+    return "A detailed STAR-formatted technical project walkthrough. Explain the Situation (project goals), Task (your responsibilities), Action (your specific technical contributions, libraries used, architectural decisions, and coding challenges solved), and Result (performance improvements, cost reduction, or other business impact).";
+  }
+  if (query.includes("disagreed") || query.includes("teammate")) {
+    return "A behavioral response showing professional conflict resolution: describe the technical or business disagreement, focus on active listening and empathy to understand their side, explain how you used objective data/compromise to reach a solution, and show the successful project outcome.";
+  }
+  if (query.includes("prioritize") || query.includes("urgent") || query.includes("pressure")) {
+    return "A structured prioritization approach: explain how you use a framework (like the Eisenhower Matrix), communicate proactively with stakeholders to negotiate timelines, focus on high-impact tasks first, and manage stress with organized daily planning.";
+  }
+  if (query.includes("why do you want to work")) {
+    return "Demonstrate alignment between your values and the company's mission. Mention specific projects, culture, or technology stack of the company that excite you, and how you can add unique value to their team.";
+  }
+  if (query.includes("strengths")) {
+    return "Highlight 1-2 key professional strengths (e.g., rapid problem solving, clean code architecture) supported by brief real-world examples, and discuss a genuine, non-dealbreaker weakness (e.g., perfectionism, over-engineering) along with how you are actively working to improve it.";
+  }
+  if (query.includes("five years") || query.includes("future")) {
+    return "Show ambition and realistic career progression. Focus on deep-diving into the technology stack, taking on more architecture design responsibilities, mentoring junior developers, and contributing directly to the core engineering goals of the organization.";
+  }
+  if (query.includes("design a url")) {
+    return "A high-level system design discussion: cover key components such as a shortener hashing algorithm (MD5/Base62), database selection (NoSQL/SQL) with a schema, caching layers (Redis) for redirection scaling, load balancing, and handling collision prevention.";
+  }
+  if (query.includes("debug") || query.includes("production issue")) {
+    return "Explain a logical diagnostic process: describe the issue and panic state, detail how you monitored logs (ELK/Splunk), isolated the variable, verified the fix in a staging environment, deployed it safely, and implemented post-mortem preventive measures.";
+  }
+  if (query.includes("new technology")) {
+    return "Outline a learning methodology: start with official documentation/quickstarts, build a small hands-on prototype to learn key patterns, consult expert blogs/videos for best practices, and seek mentorship or code reviews on early contributions.";
+  }
+  if (query.includes("underperforming")) {
+    return "A constructive management approach: first hold a private 1-on-1 to understand underlying personal or technical obstacles, establish a clear Performance Improvement Plan (PIP) with weekly feedback, offer mentorship or training, and document progress.";
+  }
+  if (query.includes("bad news")) {
+    return "Provide transparent, empathetic, and timely communication: explain the context and impact clearly, take collective responsibility without assigning individual blame, lay out the concrete remediation plan, and invite feedback/questions from the team.";
+  }
+  if (query.includes("trust")) {
+    return "Listen first, speak second. Hold individual 1-on-1s to learn team goals and pain points, lead by example, shield the team from external distractions, champion their successes, and remain reliable and transparent in decision-making.";
+  }
+  if (query.includes("deadline")) {
+    return "A proactive accountability response: explain how you realized early that the deadline would be missed, notified stakeholders immediately with options, worked extra hours or de-scoped non-critical items, delivered a stable version, and adjusted future planning.";
+  }
+  if (query.includes("persuade")) {
+    return "Use data, logic, and active listening: gather factual evidence, address their concerns directly, present a comparative analysis showing trade-offs, align on a shared business goal, and run a small proof-of-concept (POC) to prove feasibility.";
+  }
+  if (query.includes("tough feedback")) {
+    return "A growth-mindset response: listen without defensiveness, ask clarifying questions to truly understand, thank the reviewer, formulate a concrete action plan to improve, and schedule a follow-up 1-on-1 to demonstrate your growth.";
+  }
+  return "A well-structured response that addresses the question directly with clear logic, specific examples from your past work, and quantifiable business or technical metrics to prove the value and outcome.";
+};
+
+const getWhyWeak = (q, score, report) => {
+  const points = [];
+  const r = report || {};
+  const query = q.toLowerCase();
+  
+  if (score < 55) {
+    points.push("Your answer is extremely short or off-topic. Please provide a more substantial verbal response.");
+  }
+  if (r.answer_relevancy_score != null && r.answer_relevancy_score < 60) {
+    points.push(`Answer relevancy is low (${Math.round(r.answer_relevancy_score)}/100). The response does not focus enough on the core question asked.`);
+  }
+  if (r.grammar_score != null && r.grammar_score < 70) {
+    points.push("Grammar and sentence structure needs improvement. Spoken speech contains grammar slips or awkward phrasing.");
+  }
+  if (r.filler_word_count != null && r.filler_word_count > 3) {
+    points.push(`High usage of filler words detected (${r.filler_word_count} fillers). Filler words like 'um' and 'like' weaken overall delivery.`);
+  }
+  if (r.pace_score != null && r.pace_score < 70) {
+    if (r.words_per_minute > 160) {
+      points.push(`Your pacing was fast at ${Math.round(r.words_per_minute)} words per minute. Speaking too fast makes it harder for the interviewer to digest key points.`);
+    } else {
+      points.push(`Your pacing was slow at ${Math.round(r.words_per_minute)} words per minute. Aim for a confident 130-150 WPM range.`);
+    }
+  }
+  
+  if (points.length === 0 || score < 80) {
+    if (query.includes("yourself") || query.includes("introduce")) {
+      points.push("Does not explicitly follow the Present-Past-Future framework.");
+      points.push("Could place more emphasis on quantifiable results rather than general tasks.");
+    } else if (query.includes("technical project") || query.includes("worked with") || query.includes("project you're most proud")) {
+      points.push("STAR structure could be more distinct (Situation, Task, Action, Result).");
+      points.push("Missing concrete metrics such as latency, load, cost savings, or speed improvements.");
+    } else if (query.includes("disagreed") || query.includes("teammate")) {
+      points.push("Needs to highlight how you actively listened to the other party's perspective.");
+      points.push("The compromise or alignment process could be explained with more data-driven details.");
+    } else if (query.includes("prioritize") || query.includes("urgent") || query.includes("pressure")) {
+      points.push("Missing a formalized prioritization framework (like Eisenhower matrix or Agile backlog).");
+      points.push("Should detail proactive communication with stakeholders when delays are inevitable.");
+    } else {
+      points.push("Could be strengthened with a more structured approach and specific industry examples.");
+    }
+  }
+  return points;
+};
+
+const getSuggestions = (q) => {
+  const query = q.toLowerCase();
+  if (query.includes("yourself") || query.includes("introduce")) {
+    return [
+      "Open with your current headline and highest-impact project.",
+      "Limit your response to 90-120 seconds to keep the interviewer engaged.",
+      "Align your past achievements directly with the requirements of this role."
+    ];
+  }
+  if (query.includes("technical project") || query.includes("worked with") || query.includes("project you're most proud")) {
+    return [
+      "Use the STAR method: Situation (15%), Task (15%), Action (50%), Result (20%).",
+      "Highlight specific technologies (e.g., Python, PostgreSQL, AWS) and why you chose them.",
+      "Always state a quantifiable metric of success (e.g., 'reduced memory usage by 40%')."
+    ];
+  }
+  if (query.includes("disagreed") || query.includes("teammate")) {
+    return [
+      "Focus on professional alignment rather than personal conflicts.",
+      "Showcase empathy by explaining their valid arguments first.",
+      "End with the positive outcome for the project or team dynamics."
+    ];
+  }
+  if (query.includes("prioritize") || query.includes("urgent") || query.includes("pressure")) {
+    return [
+      "Explicitly mention prioritizing by business impact vs effort.",
+      "Discuss how you manage expectations and renegotiate deadlines proactively.",
+      "Explain your daily focus and time-blocking habits."
+    ];
+  }
+  return [
+    "Structure your response with clear, bulleted points.",
+    "Support your claims with brief, real-world examples.",
+    "Aim for a steady pace of 130 to 150 words per minute with silent pauses."
+  ];
+};
+
 function generateQuestions(type,resume,useResume){
   const base=QUESTION_BANK[type]||QUESTION_BANK.HR;
   if(useResume&&resume){
@@ -650,12 +798,44 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   questions,setQuestions,idx,setIdx,answer,setAnswer,
   rawLog,setRawLog,scoredLog,setScoredLog,evalProgress,setEvalProgress,
   dbSessionId,setDbSessionId,sessionId,setSessionId,setupErr,setSetupErr,
+  generatedQuestions,setGeneratedQuestions,
   hidden
 }){
 
   /* ── Interview-start loading guard ── */
   const [starting,setStarting]=useState(false);
   const startingRef=useRef(false);
+
+  /* Sync states to localStorage */
+  useEffect(() => {
+    localStorage.setItem("cc_mip_phase", phase);
+  }, [phase]);
+
+  useEffect(() => {
+    localStorage.setItem("cc_mip_questions", JSON.stringify(questions));
+  }, [questions]);
+
+  useEffect(() => {
+    localStorage.setItem("cc_mip_idx", idx);
+  }, [idx]);
+
+  useEffect(() => {
+    localStorage.setItem("cc_mip_rawLog", JSON.stringify(rawLog));
+  }, [rawLog]);
+
+  useEffect(() => {
+    localStorage.setItem("cc_mip_scoredLog", JSON.stringify(scoredLog));
+  }, [scoredLog]);
+
+  useEffect(() => {
+    if (sessionId) localStorage.setItem("cc_mip_sessionId", sessionId);
+    else localStorage.removeItem("cc_mip_sessionId");
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (dbSessionId) localStorage.setItem("cc_mip_dbSessionId", dbSessionId);
+    else localStorage.removeItem("cc_mip_dbSessionId");
+  }, [dbSessionId]);
 
   /* ── Audio recording state ── */
   const [answerMode,setAnswerMode]=useState("text");
@@ -700,7 +880,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     if(startingRef.current)return;
     startingRef.current=true;setStarting(true);setSetupErr(null);
     const resumeText=(useResume&&resume)?(resume.text||resume.summary||""):null;
-    const localBank=generateQuestions(interviewType,resume,useResume);
+    const localBank=(generatedQuestions&&generatedQuestions.length>0)?generatedQuestions:generateQuestions(interviewType,resume,useResume);
     const qs=localBank.slice(0,TOTAL_QUESTIONS);
     let sid=null;
     try{
@@ -709,7 +889,6 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
         const data=await resp.json();
         setDbSessionId(data.db_session_id||null);
         sid=data.session_id||null;
-        if(data.question)qs[0]=data.question;
       }
     }catch(_){}finally{startingRef.current=false;setStarting(false);}
     setSessionId(sid);
@@ -798,9 +977,60 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     return Math.max(20,Math.min(85,Math.round(base)));
   };
 
+  const handleRestart=()=>{
+    setRawLog([]);
+    setScoredLog([]);
+    setIdx(0);
+    setAnswer("");
+    resetRec();
+    setSessionId(null);
+    setDbSessionId(null);
+    setQuestions([]);
+    
+    localStorage.removeItem("cc_mip_phase");
+    localStorage.removeItem("cc_mip_questions");
+    localStorage.removeItem("cc_mip_idx");
+    localStorage.removeItem("cc_mip_rawLog");
+    localStorage.removeItem("cc_mip_scoredLog");
+    localStorage.removeItem("cc_mip_sessionId");
+    localStorage.removeItem("cc_mip_dbSessionId");
+    
+    const skills = resume?.skills || [];
+    const primarySkill = skills[0] || "software engineering";
+    const customQuestions = [
+      "Tell me about yourself and how your experience aligns with this role.",
+      `I see you have experience with ${primarySkill}. Can you walk me through a complex technical challenge you solved using it?`,
+      "Tell me about a time you disagreed with a teammate or stakeholder. How did you resolve it and what was the outcome?",
+      "How do you handle prioritization and pressure when everything on your plate feels urgent?"
+    ];
+    if (setGeneratedQuestions) {
+      setGeneratedQuestions(customQuestions);
+    }
+    setQuestions(customQuestions);
+    setPhase("setup");
+  };
+
   const finishInterview=()=>{
     const avgScore=Math.round(scoredLog.reduce((a,e2)=>a+e2.score,0)/Math.max(scoredLog.length,1));
-    onFinish({date:"Today",type:interviewType,avgScore,questions:scoredLog.length,scoredLog});
+    onFinish({date:"Today",type:"Mock Interview",avgScore,questions:scoredLog.length,scoredLog});
+    
+    setRawLog([]);
+    setScoredLog([]);
+    setIdx(0);
+    setAnswer("");
+    resetRec();
+    setSessionId(null);
+    setDbSessionId(null);
+    setQuestions([]);
+    
+    localStorage.removeItem("cc_mip_phase");
+    localStorage.removeItem("cc_mip_questions");
+    localStorage.removeItem("cc_mip_idx");
+    localStorage.removeItem("cc_mip_rawLog");
+    localStorage.removeItem("cc_mip_scoredLog");
+    localStorage.removeItem("cc_mip_sessionId");
+    localStorage.removeItem("cc_mip_dbSessionId");
+    
     setPhase("setup");
   };
 
@@ -808,22 +1038,34 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
   const wrapHidden=(child)=>e("div",{style:{display:hidden?"none":"block"}},child);
 
   /* Setup phase */
-  if(phase==="setup")return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:620,margin:"0 auto",padding:"0 20px 60px"}},
-    e(STitle,{text:"Set up your mock interview",Icon:SvgUsers}),
-    setupErr&&e("div",{style:{background:C.coralSoft,border:`1px solid ${C.coral}55`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontFamily:FB,fontSize:13,color:C.text}},setupErr),
-    e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:22}},
-      e(Label,{Icon:SvgBriefcase,text:"Interview type"}),
-      e("div",{style:{marginBottom:18}},e(ChipRow,{options:INTERVIEW_TYPES,value:interviewType,onChange:setInterviewType,accent:C.mint})),
-      e("label",{style:{display:"flex",alignItems:"center",gap:10,cursor:resume?"pointer":"default",opacity:resume?1:0.5}},
-        e("input",{type:"checkbox",checked:useResume,disabled:!resume,onChange:ev=>setUseResume(ev.target.checked)}),
-        e("span",{style:{fontFamily:FB,fontSize:13.5,color:C.text}},`Generate questions from my resume${!resume?" (upload in Assessment first)":""}`)
-      ),
-      e("div",{style:{marginTop:14,padding:"10px 14px",background:C.bg2,borderRadius:10,fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.6}},
-        "You'll answer ",e("strong",{style:{color:C.text}},TOTAL_QUESTIONS," questions")," one by one. All answers collected first — evaluation happens together at the end."
-      ),
-      e("button",{onClick:start,disabled:starting,style:{...pBtn,width:"100%",marginTop:18,opacity:starting?0.6:1,cursor:starting?"default":"pointer"}},starting?"Starting…":"Start interview ",!starting&&e(SvgArrow,{size:15,color:C.bg}))
-    )
-  ));
+  if(phase==="setup"){
+    const qs=(generatedQuestions&&generatedQuestions.length>0)?generatedQuestions:generateQuestions(interviewType,resume,useResume).slice(0,TOTAL_QUESTIONS);
+    return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:620,margin:"0 auto",padding:"0 20px 60px"}},
+      e(STitle,{text:"Your Mock Interview Ready",Icon:SvgUsers}),
+      setupErr&&e("div",{style:{background:C.coralSoft,border:`1px solid ${C.coral}55`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontFamily:FB,fontSize:13,color:C.text}},setupErr),
+      e("div",{style:{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:22}},
+        e("div",{style:{fontFamily:FB,fontSize:13.5,color:C.muted,marginBottom:18,lineHeight:1.6}},
+          "Based on your resume and assessment, we have compiled the following personalized sequence of HR, Technical, Behavioral, and Managerial questions for you:"
+        ),
+        e("div",{style:{display:"flex",flexDirection:"column",gap:10,marginBottom:20}},
+          qs.map((q,qi)=>e("div",{key:qi,style:{display:"flex",gap:10,alignItems:"flex-start",background:C.bg2,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`}},
+            e("div",{style:{width:20,height:20,borderRadius:"50%",background:C.purpleSoft,color:C.purple,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FM,fontSize:11,fontWeight:700,flexShrink:0,marginTop:2}},qi+1),
+            e("div",{style:{fontFamily:FB,fontSize:13,color:C.text,lineHeight:1.4}},q)
+          ))
+        ),
+        e(Label,{Icon:SvgBriefcase,text:"Interview type"}),
+        e("div",{style:{marginBottom:18}},e(ChipRow,{options:INTERVIEW_TYPES,value:interviewType,onChange:setInterviewType,accent:C.mint})),
+        e("label",{style:{display:"flex",alignItems:"center",gap:10,cursor:resume?"pointer":"default",opacity:resume?1:0.5}},
+          e("input",{type:"checkbox",checked:useResume,disabled:!resume,onChange:ev=>setUseResume(ev.target.checked)}),
+          e("span",{style:{fontFamily:FB,fontSize:13.5,color:C.text}},`Generate questions from my resume${!resume?" (upload in Assessment first)":""}`)
+        ),
+        e("div",{style:{marginTop:14,padding:"10px 14px",background:C.bg2,borderRadius:10,fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.6}},
+          "You'll answer ",e("strong",{style:{color:C.text}},TOTAL_QUESTIONS," questions")," one by one. All answers collected first — evaluation happens together at the end."
+        ),
+        e("button",{onClick:start,disabled:starting,style:{...pBtn,width:"100%",marginTop:18,opacity:starting?0.6:1,cursor:starting?"default":"pointer"}},starting?"Starting…":"Start interview ",!starting&&e(SvgArrow,{size:15,color:C.bg}))
+      )
+    ));
+  }
 
   /* Interview phase */
   if(phase==="interview"){
@@ -831,7 +1073,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     const progressPct=Math.round((idx/total)*100);
     return wrapHidden(e("div",{className:"cc-fade",style:{maxWidth:680,margin:"0 auto",padding:"0 20px 60px"}},
       e("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}},
-        e(Pill,{text:interviewType,color:C.mint}),
+        e(Pill,{text:"Mock Interview",color:C.mint}),
         e(Pill,{text:`Q ${idx+1} of ${total}`,color:C.muted,mono:true}),
         e("div",{style:{flex:1,minWidth:100}}),
         e(ElapsedTimer,{color:C.muted}),
@@ -878,7 +1120,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
                       e("div",{style:{fontFamily:FB,color:C.muted,fontSize:12,marginBottom:12}},"Recording ready — submit when happy with it."),
                       e("button",{onClick:()=>{resetRec();setAnswer("");},style:{...sBtn,fontSize:12,padding:"6px 14px"}},"Re-record")
                     ),
-              micError&&e("div",{style:{marginTop:12,background:C.coralSoft,border:`1px solid ${C.coral}55`,borderRadius:8,padding:"8px 12px",fontFamily:FB,fontSize:12,color:C.text}},micError)
+              micError&&e("div",{style:{marginTop:12,background:C.coralSoft,border:`1px solid ${C.coral}55`,borderRadius:8,padding:"8px 12px",fontFamily:FB,fontSize:12,color:C.text}}),micError
             ),
         e("div",{style:{display:"flex",gap:10,marginTop:14}},
           e("button",{onClick:submitAnswer,disabled:!answer.trim(),style:{...pBtn,flex:1,opacity:!answer.trim()?0.55:1}},
@@ -949,21 +1191,62 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     e(STitle,{text:"Question-by-question breakdown",Icon:SvgMsg}),
     e("div",{style:{display:"flex",flexDirection:"column",gap:14,marginBottom:28}},
       scoredLog.map((entry,i)=>{
-        const r=entry.report||{};const hasMetrics=r.grammar_score!=null;
-        return e("div",{key:i,style:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:18}},
-          e("div",{style:{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}},
+        const r=entry.report||{};
+        const status = entry.score >= 75 ? "Correct" : entry.score >= 50 ? "Partially Correct" : "Incorrect";
+        const statusColor = entry.score >= 75 ? C.mint : entry.score >= 50 ? C.yellow : C.coral;
+        const statusBg = entry.score >= 75 ? C.mintSoft : entry.score >= 50 ? C.yellow + "11" : C.coralSoft;
+        
+        const whyWeakPoints = getWhyWeak(entry.question, entry.score, r);
+        const expectedAnswer = getExpectedAnswer(entry.question);
+        const suggList = getSuggestions(entry.question);
+
+        return e("div",{key:i,style:{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16}},
+          e("div",{style:{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}},
             e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted,flexShrink:0,marginTop:3}},`Q${i+1}`),
             e("div",{style:{fontFamily:FD,fontWeight:600,fontSize:14,color:C.text,flex:1,lineHeight:1.4}},entry.question),
             e("span",{style:{fontFamily:FM,fontWeight:700,fontSize:17,color:colorForScore(entry.score),flexShrink:0}},`${entry.score}/100`)
           ),
-          e("div",{style:{height:5,borderRadius:3,background:C.card,overflow:"hidden",marginBottom:12}},e("div",{style:{width:`${entry.score}%`,height:"100%",background:colorForScore(entry.score),borderRadius:3,transition:"width .4s ease"}})),
-          hasMetrics&&e("div",{style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}},
-            [{label:"Grammar",val:Math.round(r.grammar_score||0),suffix:"/100"},{label:"Fluency",val:Math.round(r.fluency_score||0),suffix:"/100"},{label:"Relevancy",val:Math.round(r.answer_relevancy_score||0),suffix:"/100"},{label:"Fillers",val:r.filler_word_count||0,suffix:" words"},{label:"Filler rate",val:r.filler_word_rate!=null?r.filler_word_rate.toFixed(1):"—",suffix:"/min"}].map(({label,val,suffix})=>e("div",{key:label,style:{display:"flex",alignItems:"center",gap:5,background:C.card,borderRadius:999,padding:"4px 10px",fontFamily:FM,fontSize:11.5,color:C.muted}},e("span",{style:{color:C.text,fontWeight:600}},`${val}${suffix}`),e("span",null,label)))
+          e("div",{style:{height:5,borderRadius:3,background:C.card,overflow:"hidden",marginBottom:16}},e("div",{style:{width:`${entry.score}%`,height:"100%",background:colorForScore(entry.score),borderRadius:3,transition:"width .4s ease"}})),
+          
+          /* Candidate Answer Section */
+          e("div",{style:{marginBottom:14}},
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},"Your Answer"),
+            e("div",{style:{padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontFamily:FB,fontSize:13,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}},entry.answer)
           ),
-          entry.coachingPlan?.notes?.length>0&&e("div",{style:{display:"flex",flexDirection:"column",gap:6,marginBottom:10}},
-            entry.coachingPlan.notes.map((note,ni)=>e("div",{key:ni,style:{display:"flex",gap:8,alignItems:"flex-start"}},e(SvgCheck,{size:13,color:C.mint}),e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.5}},note)))
+
+          /* Result/Status Badge */
+          e("div",{style:{marginBottom:14,display:"flex",alignItems:"center",gap:8}},
+            e("span",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5}},"Result:"),
+            e("span",{style:{fontFamily:FM,fontWeight:700,fontSize:12,color:statusColor,background:statusBg,padding:"3px 10px",borderRadius:999,border:`1px solid ${statusColor}44`}},status)
           ),
-          e("details",{style:{marginTop:4}},e("summary",{style:{fontFamily:FM,fontSize:11,color:C.muted,cursor:"pointer",userSelect:"none"}},"Your answer ▾"),e("div",{style:{marginTop:6,padding:"10px 12px",background:C.card,borderRadius:8,fontFamily:FB,fontSize:13,color:C.text,lineHeight:1.65,whiteSpace:"pre-wrap"}},entry.answer))
+
+          /* Why Answer is Weak */
+          e("div",{style:{marginBottom:14}},
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},status === "Correct" ? "Areas for Improvement" : "Why This Answer Is Weak"),
+            e("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+              whyWeakPoints.map((pt, pidx)=>e("div",{key:pt,style:{display:"flex",gap:8,alignItems:"flex-start"}},
+                e(SvgCheck,{size:12,color:statusColor}),
+                e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.text,lineHeight:1.4}},pt)
+              ))
+            )
+          ),
+
+          /* Expected Answer Section */
+          e("div",{style:{marginBottom:14}},
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},"Expected Answer"),
+            e("div",{style:{padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontFamily:FB,fontSize:13,color:C.muted,fontStyle:"italic",lineHeight:1.6}},expectedAnswer)
+          ),
+
+          /* Suggestions Section */
+          e("div",null,
+            e("div",{style:{fontFamily:FM,fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}},"Suggestions"),
+            e("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+              suggList.map((sugg, sidx)=>e("div",{key:sugg,style:{display:"flex",gap:8,alignItems:"flex-start"}},
+                e("span",{style:{color:C.purple,fontWeight:700,fontSize:14,lineHeight:1,marginTop:-2}},"•"),
+                e("span",{style:{fontFamily:FB,fontSize:12.5,color:C.muted,lineHeight:1.4}},sugg)
+              ))
+            )
+          )
         );
       })
     ),
@@ -989,7 +1272,7 @@ function MockInterviewPage({resume,defaultType,onFinish,userId="default_user",
     ),
     e("div",{style:{display:"flex",gap:12,flexWrap:"wrap"}},
       e("button",{onClick:finishInterview,style:pBtn},"Save & view dashboard ",e(SvgArrow,{size:15,color:C.bg})),
-      e("button",{onClick:()=>setPhase("setup"),style:sBtn},"Start another interview")
+      e("button",{onClick:handleRestart,style:sBtn},"Restart Interview")
     )
   ));
 }
@@ -1156,11 +1439,33 @@ function DashboardPage({history,interviewSessions,onNewSession,onReset,userId="d
 
 /* ── App root ── */
 function CommCoachApp(){
-  const [page,setPage]=useState(1);
-  const [resume,setResume]=useState(null);
+  const [page,setPage]=useState(() => {
+    const saved = localStorage.getItem("cc_page");
+    return saved ? parseInt(saved, 10) : 1;
+  });
+  const [resume,setResume]=useState(() => {
+    const saved = localStorage.getItem("cc_resume");
+    return saved ? JSON.parse(saved) : null;
+  });
   const [history,setHistory]=useState([]);
-  const [interviewSessions,setInterviewSessions]=useState([]);
-  const [currentSession,setCurrentSession]=useState(null);
+  const [interviewSessions,setInterviewSessions]=useState(()=>{
+    const saved=localStorage.getItem("cc_interviewSessions");
+    return saved?JSON.parse(saved):[];
+  });
+  const [currentSession,setCurrentSession]=useState(()=>{
+    const saved=localStorage.getItem("cc_currentSession");
+    return saved?JSON.parse(saved):null;
+  });
+  const [generatedQuestions,setGeneratedQuestions]=useState(()=>{
+    const saved=localStorage.getItem("cc_generatedQuestions");
+    if(saved)return JSON.parse(saved);
+    return [
+      "Tell me about yourself and how your experience aligns with this role.",
+      "Walk me through a technical project you're most proud of.",
+      "Tell me about a time you disagreed with a teammate. How did you handle it?",
+      "How do you prioritize when everything feels urgent?"
+    ];
+  });
   const [assessmentUploading,setAssessmentUploading]=useState(false);
   const [sessionsLoading,setSessionsLoading]=useState(true);
   // Persistent user identity via localStorage
@@ -1181,6 +1486,13 @@ function CommCoachApp(){
   const [ivDbSessionId,setIvDbSessionId]=useState(null);
   const [ivSessionId,setIvSessionId]=useState(null);
   const [ivSetupErr,setIvSetupErr]=useState(null);
+
+  /* Sync states to localStorage */
+  useEffect(()=>{localStorage.setItem("cc_page",page);},[page]);
+  useEffect(()=>{if(resume)localStorage.setItem("cc_resume",JSON.stringify(resume));else localStorage.removeItem("cc_resume");},[resume]);
+  useEffect(()=>{localStorage.setItem("cc_interviewSessions",JSON.stringify(interviewSessions));},[interviewSessions]);
+  useEffect(()=>{if(currentSession)localStorage.setItem("cc_currentSession",JSON.stringify(currentSession));else localStorage.removeItem("cc_currentSession");},[currentSession]);
+  useEffect(()=>{localStorage.setItem("cc_generatedQuestions",JSON.stringify(generatedQuestions));},[generatedQuestions]);
 
   const saveUserId=(newId)=>{
     const clean=(newId||"").trim()||"default_user";
@@ -1231,6 +1543,17 @@ function CommCoachApp(){
       feedback={fluency:82,grammar:79,pronunciation:75,confidence:68,emotion:"Calm and steady",pace:74,paceNote:"Slightly fast",wpm:148,overall:76,fillers:MOCK_FILLER_COUNT,fillersPerMinute:2.1,summary:"Solid answer — a little polish on delivery.",publicSpeaking:{storytelling:78,audienceEngagement:70,presentationFlow:74},coachingPlan:{focusArea:"Cutting filler words before technical terms",notes:["Strong technical clarity.","Filler words cluster right before technical terms.","Confidence dipped when quantifying impact."],drills:[{title:"Pause, don't fill",desc:"Practice 5 answers where you replace every filler with a silent 1-second pause."},{title:"Lead with the number",desc:"Rewrite 3 project stories to open with the metric, not the setup."}]}};
       tokens=MOCK_TRANSCRIPT_TOKENS;
     }
+
+    const skills = resume?.skills || [];
+    const primarySkill = skills[0] || "software engineering";
+    const customQuestions = [
+      "Tell me about yourself and how your experience aligns with this role.",
+      `I see you have experience with ${primarySkill}. Can you walk me through a complex technical challenge you solved using it?`,
+      "Tell me about a time you disagreed with a teammate or stakeholder. How did you resolve it and what was the outcome?",
+      "How do you handle prioritization and pressure when everything on your plate feels urgent?"
+    ];
+    setGeneratedQuestions(customQuestions);
+
     setCurrentSession({language,interviewType,practiceMode,transcript:tokens,feedback});
     const n=history.length+1;
     setHistory(prev=>[...prev,{session:`S${n}`,date:"Today",practiceMode,interviewType,fluency:feedback.fluency||0,grammar:feedback.grammar||0,pronunciation:feedback.pronunciation||0,confidence:feedback.confidence||0,pace:feedback.pace||0,overall:feedback.overall||0,fillers:feedback.fillers||0}]);
@@ -1254,7 +1577,12 @@ function CommCoachApp(){
     setPage(4);
   };
 
-  const handleReset=()=>{setHistory([]);setInterviewSessions([]);setCurrentSession(null);setIvPhase("setup");setIvRawLog([]);setIvScoredLog([]);};
+  const handleReset=()=>{
+    setHistory([]);setInterviewSessions([]);setCurrentSession(null);
+    setIvPhase("setup");setIvRawLog([]);setIvScoredLog([]);
+    setResume(null);setPage(1);
+    localStorage.clear();
+  };
 
   /* User ID edit banner */
   const userBanner=editingUser&&e("div",{style:{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 28px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
@@ -1289,6 +1617,7 @@ function CommCoachApp(){
         dbSessionId:ivDbSessionId,setDbSessionId:setIvDbSessionId,
         sessionId:ivSessionId,setSessionId:setIvSessionId,
         setupErr:ivSetupErr,setSetupErr:setIvSetupErr,
+        generatedQuestions,setGeneratedQuestions,
       }),
       page===4&&e(DashboardPage,{history,interviewSessions,onNewSession:()=>setPage(1),onReset:handleReset,userId,loading:sessionsLoading}),
       e(ToastContainer,null)
